@@ -1,0 +1,62 @@
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Build output
+dist/
+build/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Uploads & temporary storage
+uploads/
+tmp/
+temp/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# SQLite databases & Prisma local files (if generated)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite-journal
+
+# Testing & Coverage
+coverage/
+.nyc_output/
+
+# IDE & Editor files
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
