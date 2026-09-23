@@ -10,6 +10,7 @@ import { createAutomationWorker } from './automation.worker';
 import { createAIWorker } from './ai.worker';
 import { createNotificationWorker } from './notification.worker';
 import { createAnalyticsWorker } from './analytics.worker';
+import { startScheduler, stopScheduler } from '../jobs/scheduler';
 
 let workers: Worker[] = [];
 
@@ -37,11 +38,16 @@ export function startWorkers(): Worker[] {
     worker.on('error', (err) => logger.error({ queue: worker.name, err }, 'worker error'));
   }
 
+  // Recurring work (analytics rollups, idle-conversation triggers) lives with
+  // the workers, not the API, so it runs exactly where the queues are consumed.
+  startScheduler();
+
   logger.info({ count: workers.length, concurrency: env.WORKER_CONCURRENCY }, 'workers started');
   return workers;
 }
 
 export async function stopWorkers(): Promise<void> {
+  stopScheduler();
   await Promise.all(workers.map((w) => w.close().catch(() => undefined)));
   workers = [];
 }
