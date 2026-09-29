@@ -9,6 +9,7 @@ import { httpLogger, requestId } from './middleware/requestContext';
 import { errorHandler, notFoundHandler } from './middleware/error';
 import { apiLimiter } from './middleware/rateLimit';
 import routes from './routes';
+import widgetRoutes from './routes/widget.routes';
 
 export function createApp(): Express {
   const app = express();
@@ -26,6 +27,13 @@ export function createApp(): Express {
     }),
   );
 
+  app.use(requestId);
+  app.use(httpLogger);
+
+  // The website chat widget is called from customers' sites, streams SSE and
+  // has its own CORS and limits, so it sits in front of the dashboard stack.
+  app.use('/api/widget', widgetRoutes);
+
   app.use(
     cors({
       origin(origin, callback) {
@@ -41,8 +49,6 @@ export function createApp(): Express {
   );
 
   app.use(compression());
-  app.use(requestId);
-  app.use(httpLogger);
 
   app.use(
     express.json({

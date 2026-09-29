@@ -31,11 +31,13 @@ enum Platform {
   FACEBOOK
   INSTAGRAM
   WHATSAPP
+  WEBCHAT
   INTERNAL
 }
 
 enum IntegrationProvider {
   META
+  WEBCHAT
 }
 
 enum IntegrationStatus {
@@ -50,6 +52,7 @@ enum SocialAccountType {
   FACEBOOK_PAGE
   INSTAGRAM_ACCOUNT
   WHATSAPP_NUMBER
+  WEBCHAT_WIDGET
 }
 
 enum ConversationStatus {
@@ -149,6 +152,35 @@ enum KnowledgeDocumentStatus {
   PENDING
   PROCESSING
   READY
+  FAILED
+}
+
+enum WidgetPosition {
+  BOTTOM_RIGHT
+  BOTTOM_LEFT
+}
+
+enum PreChatMode {
+  OFF
+  OPTIONAL
+  REQUIRED
+}
+
+enum TrainingSource {
+  MANUAL
+  INBOX
+  IMPORT
+}
+
+enum TrainingStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum TrainingImportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
   FAILED
 }
 
@@ -284,9 +316,9 @@ model User {
 }
 
 model Session {
-  id               String @id @default(cuid())
-  userId           String
-  refreshTokenHash String @unique
+  id                   String    @id @default(cuid())
+  userId               String
+  refreshTokenHash     String    @unique
   // The active organization lives server-side on the session. It is never
   // taken from a request body or header (spec section 4).
   activeOrganizationId String?
@@ -323,15 +355,15 @@ model VerificationToken {
 // ---------------------------------------------------------------------------
 
 model Organization {
-  id          String  @id @default(cuid())
-  name        String
-  slug        String  @unique
-  description String?
-  industry    String?
-  website     String?
-  logoUrl     String?
-  timezone    String  @default("UTC")
-  currency    String  @default("USD")
+  id                 String   @id @default(cuid())
+  name               String
+  slug               String   @unique
+  description        String?
+  industry           String?
+  website            String?
+  logoUrl            String?
+  timezone           String   @default("UTC")
+  currency           String   @default("USD")
   // [{ day: 1, open: "09:00", close: "18:00", enabled: true }]
   businessHours      Json?
   onboardingStep     Int      @default(0)
@@ -352,6 +384,9 @@ model Organization {
   automationExecutions AutomationExecution[]
   aiAssistant          AIAssistant?
   knowledgeBases       AIKnowledgeBase[]
+  trainingExamples     AITrainingExample[]
+  trainingImports      AITrainingImport[]
+  chatWidgets          ChatWidget[]
   aiSessions           AIConversationSession[]
   templates            MessageTemplate[]
   notifications        Notification[]
@@ -464,16 +499,16 @@ model Integration {
 }
 
 model SocialAccount {
-  id             String            @id @default(cuid())
-  organizationId String
-  integrationId  String
-  type           SocialAccountType
-  platform       Platform
+  id               String            @id @default(cuid())
+  organizationId   String
+  integrationId    String
+  type             SocialAccountType
+  platform         Platform
   // Page id / IG business id / WhatsApp phone_number_id
-  externalId     String
-  name           String
-  username       String?
-  avatarUrl      String?
+  externalId       String
+  name             String
+  username         String?
+  avatarUrl        String?
   // WhatsApp business account id, FB page category, etc.
   parentExternalId String?
   phoneNumber      String?
@@ -490,6 +525,7 @@ model SocialAccount {
   integration   Integration    @relation(fields: [integrationId], references: [id], onDelete: Cascade)
   conversations Conversation[]
   messages      Message[]
+  chatWidget    ChatWidget?
 
   @@unique([platform, externalId])
   @@index([organizationId])
@@ -538,10 +574,10 @@ model Contact {
 }
 
 model ContactIdentifier {
-  id             String   @id @default(cuid())
-  organizationId String
-  contactId      String
-  platform       Platform
+  id              String   @id @default(cuid())
+  organizationId  String
+  contactId       String
+  platform        Platform
   // PSID / IGSID / WhatsApp phone
   externalId      String
   socialAccountId String?
@@ -590,33 +626,33 @@ model Tag {
 // ---------------------------------------------------------------------------
 
 model Conversation {
-  id              String               @id @default(cuid())
-  organizationId  String
-  contactId       String
-  socialAccountId String?
-  platform        Platform
-  status          ConversationStatus   @default(OPEN)
-  priority        ConversationPriority @default(NORMAL)
-  subject         String?
+  id                   String               @id @default(cuid())
+  organizationId       String
+  contactId            String
+  socialAccountId      String?
+  platform             Platform
+  status               ConversationStatus   @default(OPEN)
+  priority             ConversationPriority @default(NORMAL)
+  subject              String?
   // Platform thread id (Messenger thread, WhatsApp contact, ...)
-  externalId         String?
-  unreadCount        Int      @default(0)
-  messageCount       Int      @default(0)
-  aiMode             AiMode   @default(ENABLED)
-  aiReplyCount       Int      @default(0)
-  lastMessageAt      DateTime?
-  lastMessagePreview String?
-  lastInboundAt      DateTime?
-  lastOutboundAt     DateTime?
+  externalId           String?
+  unreadCount          Int                  @default(0)
+  messageCount         Int                  @default(0)
+  aiMode               AiMode               @default(ENABLED)
+  aiReplyCount         Int                  @default(0)
+  lastMessageAt        DateTime?
+  lastMessagePreview   String?
+  lastInboundAt        DateTime?
+  lastOutboundAt       DateTime?
   firstResponseSeconds Int?
   resolvedAt           DateTime?
   snoozedUntil         DateTime?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
 
-  organization         Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  contact              Contact                 @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  socialAccount        SocialAccount?          @relation(fields: [socialAccountId], references: [id], onDelete: SetNull)
+  organization         Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contact              Contact                  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  socialAccount        SocialAccount?           @relation(fields: [socialAccountId], references: [id], onDelete: SetNull)
   messages             Message[]
   assignments          ConversationAssignment[]
   tags                 ConversationTag[]
@@ -635,30 +671,30 @@ model Conversation {
 }
 
 model Message {
-  id             String           @id @default(cuid())
-  organizationId String
-  conversationId String
-  platform       Platform
-  direction      MessageDirection
-  type           MessageType      @default(TEXT)
-  status         MessageStatus    @default(SENT)
-  senderType     SenderType
-  body           String?
-  attachments    Json? // [{ type, url, name, mimeType, size }]
+  id              String           @id @default(cuid())
+  organizationId  String
+  conversationId  String
+  platform        Platform
+  direction       MessageDirection
+  type            MessageType      @default(TEXT)
+  status          MessageStatus    @default(SENT)
+  senderType      SenderType
+  body            String?
+  attachments     Json? // [{ type, url, name, mimeType, size }]
   externalId      String?
   replyToId       String?
   contactId       String?
   userId          String?
   socialAccountId String?
-  isInternal      Boolean   @default(false)
-  aiGenerated     Boolean   @default(false)
+  isInternal      Boolean          @default(false)
+  aiGenerated     Boolean          @default(false)
   aiConfidence    Float?
   errorMessage    String?
   metadata        Json?
   deliveredAt     DateTime?
   readAt          DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
   organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   conversation  Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -728,11 +764,11 @@ model ContactTag {
 // ---------------------------------------------------------------------------
 
 model Automation {
-  id             String  @id @default(cuid())
-  organizationId String
-  name           String
-  description    String?
-  isActive       Boolean @default(true)
+  id                String     @id @default(cuid())
+  organizationId    String
+  name              String
+  description       String?
+  isActive          Boolean    @default(true)
   // Only run once per contact (welcome messages)
   runOncePerContact Boolean    @default(false)
   priority          Int        @default(100)
@@ -758,8 +794,8 @@ model AutomationTrigger {
   automationId   String
   type           AutomationTriggerType
   // { keywords: ["price"], matchType: "any", idleMinutes: 30, ... }
-  config    Json?
-  createdAt DateTime @default(now())
+  config         Json?
+  createdAt      DateTime              @default(now())
 
   automation Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
 
@@ -775,8 +811,8 @@ model AutomationAction {
   type           AutomationActionType
   order          Int                  @default(0)
   // { message, tagId, agentId, status, delaySeconds, url }
-  config    Json?
-  createdAt DateTime @default(now())
+  config         Json?
+  createdAt      DateTime             @default(now())
 
   automation Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
 
@@ -812,16 +848,16 @@ model AutomationExecution {
 // ---------------------------------------------------------------------------
 
 model AIAssistant {
-  id             String @id @default(cuid())
-  organizationId String @unique
-  name           String @default("Unichat Assistant")
-  persona        String @default("friendly, concise and helpful")
-  systemPrompt   String?
-  language       String @default("en")
-  model          String @default("claude-sonnet-5")
-  provider       String @default("mock") // openai | anthropic | mock
-  temperature    Float  @default(0.3)
-  maxTokens      Int    @default(600)
+  id                        String   @id @default(cuid())
+  organizationId            String   @unique
+  name                      String   @default("Unichat Assistant")
+  persona                   String   @default("friendly, concise and helpful")
+  systemPrompt              String?
+  language                  String   @default("en")
+  model                     String   @default("claude-opus-5-5")
+  provider                  String   @default("mock") // openai | anthropic | mock
+  temperature               Float    @default(0.3)
+  maxTokens                 Int      @default(600)
   autoReplyEnabled          Boolean  @default(false)
   confidenceThreshold       Float    @default(0.65)
   businessHoursOnly         Boolean  @default(false)
@@ -877,12 +913,12 @@ model AIKnowledgeDocument {
 }
 
 model AIKnowledgeChunk {
-  id             String @id @default(cuid())
+  id             String   @id @default(cuid())
   organizationId String
   documentId     String
   chunkIndex     Int
   content        String
-  tokenCount     Int    @default(0)
+  tokenCount     Int      @default(0)
   // Embedding vector. Stored as a float array so the app runs without
   // pgvector; swap to Unsupported("vector") + pgvector when retrieval scales.
   embedding      Float[]  @default([])
@@ -896,21 +932,123 @@ model AIKnowledgeChunk {
 }
 
 model AIConversationSession {
-  id             String   @id @default(cuid())
-  organizationId String
-  conversationId String
-  replyCount     Int      @default(0)
-  lastConfidence Float?
-  handedOff      Boolean  @default(false)
-  handoffReason  String?
-  totalTokens    Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  organizationId        String
+  conversationId        String
+  replyCount            Int      @default(0)
+  lastConfidence        Float?
+  handedOff             Boolean  @default(false)
+  handoffReason         String?
+  // The inbound message the assistant last answered. Claimed atomically before
+  // sending, so a retried job can never reply to the same message twice.
+  lastAnsweredMessageId String?
+  totalTokens           Int      @default(0)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@unique([conversationId])
+  @@index([organizationId])
+}
+
+/// A question → approved answer pair the assistant reuses. Written by hand,
+/// taught from a real inbox message, or imported from JSON.
+model AITrainingExample {
+  id             String         @id @default(cuid())
+  organizationId String
+  question       String
+  answer         String
+  // sha1 of the normalized question: an exact match skips the LLM entirely,
+  // and re-importing the same question updates its answer instead of
+  // duplicating it.
+  questionHash   String
+  source         TrainingSource @default(MANUAL)
+  status         TrainingStatus @default(ACTIVE)
+  conversationId String?
+  messageId      String?
+  createdById    String?
+  embedding      Float[]        @default([])
+  embeddingModel String?
+  useCount       Int            @default(0)
+  lastUsedAt     DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, questionHash])
+  @@index([organizationId, status])
+  @@index([organizationId, updatedAt])
+}
+
+/// Progress of one JSON training import, processed on the AI queue.
+model AITrainingImport {
+  id             String               @id @default(cuid())
+  organizationId String
+  status         TrainingImportStatus @default(PENDING)
+  fileName       String?
+  total          Int                  @default(0)
+  imported       Int                  @default(0)
+  updated        Int                  @default(0)
+  skipped        Int                  @default(0)
+  // Parsed pairs waiting to be processed; cleared once the import finishes.
+  payload        Json?
+  errors         Json?
+  createdById    String?
+  createdAt      DateTime             @default(now())
+  completedAt    DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Website chat
+// ---------------------------------------------------------------------------
+
+/// An embeddable website chat widget. Each widget is backed by a SocialAccount
+/// (platform WEBCHAT), so its conversations flow through the same inbox,
+/// automation and AI pipeline as every other channel.
+model ChatWidget {
+  id              String   @id @default(cuid())
+  organizationId  String
+  socialAccountId String   @unique
+  // Embedded in the customer's website. It routes a visitor to this widget
+  // and nothing more — it is not a secret.
+  publicKey       String   @unique
+  name            String
+  isActive        Boolean  @default(true)
+  // Empty = any website may load the widget. Supports "*.example.com".
+  allowedDomains  String[] @default([])
+
+  position         WidgetPosition @default(BOTTOM_RIGHT)
+  offsetX          Int            @default(20)
+  offsetY          Int            @default(20)
+  primaryColor     String         @default("#4f46e5")
+  logoUrl          String?
+  // Preset launcher glyph: chat | help | message | logo
+  launcherIcon     String         @default("chat")
+  title            String         @default("Chat with us")
+  subtitle         String?        @default("We typically reply in a few minutes")
+  welcomeMessage   String?        @default("Hi there! How can we help you today?")
+  inputPlaceholder String         @default("Type your message…")
+  offlineMessage   String?        @default("We're away right now. Leave a message and we'll get back to you.")
+  showBranding     Boolean        @default(true)
+
+  preChatMode   PreChatMode @default(OFF)
+  preChatFields String[]    @default(["name", "email"])
+
+  lastSeenAt     DateTime?
+  lastSeenOrigin String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  socialAccount SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+
   @@index([organizationId])
 }
 
@@ -925,12 +1063,12 @@ model MessageTemplate {
   category       TemplateCategory @default(OTHER)
   body           String
   // ["{{customer_name}}"]
-  variables  String[]   @default([])
-  platforms  Platform[] @default([])
-  isActive   Boolean    @default(true)
-  usageCount Int        @default(0)
-  createdAt  DateTime   @default(now())
-  updatedAt  DateTime   @updatedAt
+  variables      String[]         @default([])
+  platforms      Platform[]       @default([])
+  isActive       Boolean          @default(true)
+  usageCount     Int              @default(0)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -959,20 +1097,20 @@ model Notification {
 }
 
 model WebhookEvent {
-  id             String    @id @default(cuid())
+  id             String             @id @default(cuid())
   organizationId String?
   integrationId  String?
-  provider       String    @default("meta")
+  provider       String             @default("meta")
   platform       Platform?
   // Provider-supplied dedupe key (message id, or entry id + timestamp)
-  eventKey    String             @unique
-  objectType  String?
-  payload     Json
-  status      WebhookEventStatus @default(RECEIVED)
-  attempts    Int                @default(0)
-  error       String?
-  receivedAt  DateTime           @default(now())
-  processedAt DateTime?
+  eventKey       String             @unique
+  objectType     String?
+  payload        Json
+  status         WebhookEventStatus @default(RECEIVED)
+  attempts       Int                @default(0)
+  error          String?
+  receivedAt     DateTime           @default(now())
+  processedAt    DateTime?
 
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   integration  Integration?  @relation(fields: [integrationId], references: [id], onDelete: SetNull)
@@ -1139,9 +1277,9 @@ model Parcel {
   deliveredAt    DateTime?
   note           String?
   // [{ status, at, note }]
-  history   Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  history        Json?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   order        Order?       @relation(fields: [orderId], references: [id], onDelete: SetNull)

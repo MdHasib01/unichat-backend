@@ -22,7 +22,8 @@ export const httpLogger = pinoHttp({
     return 'info';
   },
   serializers: {
-    req: (req) => ({ id: req.id, method: req.method, url: req.url }),
+    // Website chat streams carry the visitor token in the query string.
+    req: (req) => ({ id: req.id, method: req.method, url: String(req.url).replace(/([?&]token=)[^&]+/, '$1[redacted]') }),
     res: (res) => ({ statusCode: res.statusCode }),
   },
 });

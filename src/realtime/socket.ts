@@ -1,12 +1,14 @@
 import type { Server as HttpServer } from 'http';
 import { Server as SocketServer, type Socket } from 'socket.io';
-import cookie from 'cookie';
+import { parse as parseCookies } from 'cookie';
 import { corsOrigins } from '../config/env';
 import { logger } from '../lib/logger';
 import { createRedisConnection } from '../lib/redis';
 import { prisma } from '../lib/prisma';
 import { ACCESS_COOKIE, verifyAccessToken } from '../services/token.service';
 import { loadTenantContext } from '../middleware/auth';
+import { signalVisitorTyping } from '../services/webchat.service';
+import { setLocalRealtimeSink } from './publisher';
 import {
   REALTIME_CHANNEL,
   RealtimeEvent,
@@ -39,7 +41,7 @@ export function initRealtime(httpServer: HttpServer): SocketServer {
   io.use(async (socket, next) => {
     try {
       const header = socket.handshake.headers.cookie;
-      const cookies = header ? cookie.parse(header) : {};
+      const cookies = header ? parseCookies(header) : {};
       const token =
         (socket.handshake.auth?.token as string | undefined) ||
         cookies[ACCESS_COOKIE] ||
@@ -98,6 +100,12 @@ export function initRealtime(httpServer: HttpServer): SocketServer {
       socket
         .to(conversationRoom(organizationId, conversationId))
         .emit(RealtimeEvent.TYPING, { conversationId, userId });
+
+      // Website visitors see "typing…" too. Throttled by the client already;
+      // the lookup is cached, and ownership is checked through organizationId.
+      if (typeof conversationId === 'string') {
+        void signalVisitorTyping(organizationId, conversationId, 'agent').catch(() => undefined);
+      }
     });
 
     socket.on('disconnect', () => {
@@ -106,6 +114,8 @@ export function initRealtime(httpServer: HttpServer): SocketServer {
   });
 
   subscribeToRedisBridge();
+  // Without Redis, events emitted in this process go straight to its sockets.
+  setLocalRealtimeSink(relay);
 
   return io;
 }
@@ -123,21 +133,8 @@ function subscribeToRedisBridge() {
     });
 
     subscriber.on('message', (_channel, raw) => {
-      if (!io) return;
       try {
-        const envelope = JSON.parse(raw) as RealtimeEnvelope;
-        const room = envelope.userId
-          ? userRoom(envelope.organizationId, envelope.userId)
-          : envelope.conversationId
-            ? conversationRoom(envelope.organizationId, envelope.conversationId)
-            : orgRoom(envelope.organizationId);
-
-        io.to(room).emit(envelope.event, envelope.payload);
-
-        // Conversation-scoped events also refresh the inbox list for the org.
-        if (envelope.conversationId && !envelope.userId) {
-          io.to(orgRoom(envelope.organizationId)).emit(envelope.event, envelope.payload);
-        }
+        relay(JSON.parse(raw) as RealtimeEnvelope);
       } catch (error) {
         logger.warn({ err: error }, 'failed to relay realtime event');
       }
@@ -147,11 +144,34 @@ function subscribeToRedisBridge() {
   }
 }
 
+/** Delivers one event to the sockets it is addressed to. */
+function relay(envelope: RealtimeEnvelope) {
+  if (!io) return;
+
+  if (envelope.userId) {
+    io.to(userRoom(envelope.organizationId, envelope.userId)).emit(envelope.event, envelope.payload);
+    return;
+  }
+
+  if (envelope.conversationId) {
+    // Conversation-scoped events also refresh the org's inbox list. One emit
+    // to both rooms, so a socket that is in both receives it once.
+    io.to([
+      conversationRoom(envelope.organizationId, envelope.conversationId),
+      orgRoom(envelope.organizationId),
+    ]).emit(envelope.event, envelope.payload);
+    return;
+  }
+
+  io.to(orgRoom(envelope.organizationId)).emit(envelope.event, envelope.payload);
+}
+
 export function getIO(): SocketServer | null {
   return io;
 }
 
 export async function closeRealtime(): Promise<void> {
+  setLocalRealtimeSink(null);
   if (io) {
     await io.close();
     io = null;

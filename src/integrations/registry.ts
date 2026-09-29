@@ -6,6 +6,7 @@ import { IntegrationError, NotFoundError } from '../utils/errors';
 import { facebookProvider } from './facebook/facebook.provider';
 import { instagramProvider } from './instagram/instagram.provider';
 import { whatsappProvider } from './whatsapp/whatsapp.provider';
+import { webchatProvider } from './webchat/webchat.provider';
 import {
   mockFacebookProvider,
   mockInstagramProvider,
@@ -17,6 +18,8 @@ const REAL_PROVIDERS: Record<Platform, MessagingProvider | null> = {
   FACEBOOK: facebookProvider,
   INSTAGRAM: instagramProvider,
   WHATSAPP: whatsappProvider,
+  // Website chat has no external transport, so it is identical in mock mode.
+  WEBCHAT: webchatProvider,
   INTERNAL: null,
 };
 
@@ -24,6 +27,7 @@ const MOCK_PROVIDERS: Record<Platform, MessagingProvider | null> = {
   FACEBOOK: mockFacebookProvider,
   INSTAGRAM: mockInstagramProvider,
   WHATSAPP: mockWhatsAppProvider,
+  WEBCHAT: webchatProvider,
   INTERNAL: null,
 };
 
@@ -55,12 +59,24 @@ export async function resolveCredentials(
       parentExternalId: true,
       accessTokenEnc: true,
       isActive: true,
+      platform: true,
       integration: { select: { accessTokenEnc: true } },
     },
   });
 
   if (!account) throw new NotFoundError('Connected channel');
   if (!account.isActive) throw new IntegrationError('This channel is disconnected');
+
+  // Website chat is served by Unichat itself; there is no token to hold.
+  if (account.platform === Platform.WEBCHAT) {
+    return {
+      organizationId: account.organizationId,
+      socialAccountId: account.id,
+      accessToken: '',
+      externalId: account.externalId,
+      parentExternalId: null,
+    };
+  }
 
   const token =
     decryptNullable(account.accessTokenEnc) ??
@@ -84,6 +100,7 @@ export const SUPPORTED_PLATFORMS: Platform[] = [
   Platform.FACEBOOK,
   Platform.INSTAGRAM,
   Platform.WHATSAPP,
+  Platform.WEBCHAT,
 ];
 
 export function isMockMode(): boolean {

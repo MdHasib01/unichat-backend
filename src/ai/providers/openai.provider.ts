@@ -2,13 +2,17 @@ import OpenAI from 'openai';
 import { env } from '../../config/env';
 import { IntegrationError } from '../../utils/errors';
 import { parseAssistantJson } from './anthropic.provider';
-import type {
-  AIMessage,
-  AIProvider,
-  EmbeddingResult,
-  GenerateOptions,
-  GenerateResult,
+import {
+  withContext,
+  type AIMessage,
+  type AIProvider,
+  type EmbeddingResult,
+  type GenerateOptions,
+  type GenerateResult,
 } from '../types';
+
+/** The embeddings endpoint accepts batches; keep each request modest. */
+const EMBEDDING_BATCH = 96;
 
 /** OpenAI adapter — the second concrete provider behind the AIProvider port. */
 export class OpenAIProvider implements AIProvider {
@@ -20,16 +24,15 @@ export class OpenAIProvider implements AIProvider {
   constructor(apiKey?: string) {
     const key = apiKey ?? env.OPENAI_API_KEY;
     if (!key) throw new IntegrationError('OPENAI_API_KEY is not configured');
-    this.client = new OpenAI({ apiKey: key });
+    this.client = new OpenAI({ apiKey: key, timeout: 45_000, maxRetries: 2 });
   }
 
   async generateResponse(messages: AIMessage[], options: GenerateOptions): Promise<GenerateResult> {
-    const payload: AIMessage[] = options.system
-      ? [{ role: 'system', content: options.system }, ...messages]
-      : messages;
+    const turns = withContext(messages, options.context);
+    const payload: AIMessage[] = options.system ? [{ role: 'system', content: options.system }, ...turns] : turns;
 
     const response = await this.client.chat.completions.create({
-      model: options.model || 'gpt-4o-mini',
+      model: options.model?.startsWith('claude-') ? 'gpt-4o-mini' : options.model || 'gpt-4o-mini',
       temperature: options.temperature ?? 0.3,
       max_tokens: options.maxTokens ?? 600,
       response_format: { type: 'json_object' },
@@ -49,15 +52,26 @@ export class OpenAIProvider implements AIProvider {
   }
 
   async generateEmbedding(text: string, model?: string): Promise<EmbeddingResult> {
-    const response = await this.client.embeddings.create({
-      model: model || env.AI_EMBEDDING_MODEL,
-      input: text,
-    });
+    const [result] = await this.generateEmbeddings([text], model);
+    return result;
+  }
 
-    return {
-      embedding: response.data[0]?.embedding ?? [],
-      model: response.model,
-      tokensUsed: response.usage?.total_tokens ?? 0,
-    };
+  async generateEmbeddings(texts: string[], model?: string): Promise<EmbeddingResult[]> {
+    const results: EmbeddingResult[] = [];
+
+    for (let i = 0; i < texts.length; i += EMBEDDING_BATCH) {
+      const batch = texts.slice(i, i + EMBEDDING_BATCH);
+      const response = await this.client.embeddings.create({
+        model: model || env.AI_EMBEDDING_MODEL,
+        input: batch,
+      });
+      const tokensEach = Math.ceil((response.usage?.total_tokens ?? 0) / batch.length);
+      const ordered = [...response.data].sort((a, b) => a.index - b.index);
+      for (const item of ordered) {
+        results.push({ embedding: item.embedding, model: response.model, tokensUsed: tokensEach });
+      }
+    }
+
+    return results;
   }
 }

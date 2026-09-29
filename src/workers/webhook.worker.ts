@@ -1,16 +1,15 @@
 import { Worker, type Job } from 'bullmq';
-import { AutomationTriggerType, MessageType, Platform, WebhookEventStatus } from '@prisma/client';
+import { Platform, WebhookEventStatus } from '@prisma/client';
 import { env } from '../config/env';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
-import { createRedisConnection, withLock } from '../lib/redis';
-import { QUEUE_NAMES, automationQueue, messageQueue } from '../queues';
-import type { AutomationJob, InboundMessageJob, WebhookJob } from '../queues/jobTypes';
+import { createRedisConnection } from '../lib/redis';
+import { QUEUE_NAMES } from '../queues';
+import type { WebhookJob } from '../queues/jobTypes';
 import { getProvider } from '../integrations/registry';
 import { profileNameFromRaw } from '../integrations/meta/normalize';
-import { findOrCreateContactByIdentifier } from '../services/contact.service';
-import { findOrCreateConversation } from '../services/conversation.service';
-import { applyStatusUpdate, storeInboundMessage } from '../services/message.service';
+import { applyStatusUpdate } from '../services/message.service';
+import { ingestInboundMessage } from '../services/inbound.service';
 import type { NormalizedMessage } from '../integrations/types';
 
 /**
@@ -101,82 +100,13 @@ async function processInboundMessage(message: NormalizedMessage, webhookEventId:
     data: { organizationId: socialAccount.organizationId, integrationId: socialAccount.integrationId },
   });
 
-  const organizationId = socialAccount.organizationId;
-
-  // Two workers may pick up redelivered entries at once.
-  const result = await withLock(
-    `inbound:${message.platform}:${message.externalMessageId}`,
-    30_000,
-    async () => {
-      const contact = await findOrCreateContactByIdentifier({
-        organizationId,
-        platform: message.platform,
-        externalId: message.senderExternalId,
-        socialAccountId: socialAccount.id,
-        displayName: profileNameFromRaw(message.raw),
-        phone: message.platform === Platform.WHATSAPP ? message.senderExternalId : undefined,
-      });
-
-      const conversation = await findOrCreateConversation({
-        organizationId,
-        contactId: contact.id,
-        platform: message.platform,
-        socialAccountId: socialAccount.id,
-        externalId: message.threadExternalId ?? message.senderExternalId,
-      });
-
-      const existingInbound = await prisma.message.count({
-        where: { organizationId, conversationId: conversation.id, direction: 'INBOUND' },
-      });
-
-      const stored = await storeInboundMessage({
-        organizationId,
-        conversationId: conversation.id,
-        contactId: contact.id,
-        platform: message.platform,
-        externalMessageId: message.externalMessageId,
-        socialAccountId: socialAccount.id,
-        body: message.text,
-        type: message.type ?? MessageType.TEXT,
-        attachments: message.attachments,
-        timestamp: message.timestamp,
-        raw: message.raw,
-      });
-
-      if (!stored) return null;
-
-      return {
-        messageId: stored.id,
-        conversationId: conversation.id,
-        contactId: contact.id,
-        isFirstMessage: existingInbound === 0,
-      };
+  await ingestInboundMessage({
+    organizationId: socialAccount.organizationId,
+    socialAccountId: socialAccount.id,
+    message,
+    profile: {
+      displayName: profileNameFromRaw(message.raw),
+      phone: message.platform === Platform.WHATSAPP ? message.senderExternalId : undefined,
     },
-  );
-
-  if (!result) return;
-
-  const inboundJob: InboundMessageJob = {
-    organizationId,
-    messageId: result.messageId,
-    conversationId: result.conversationId,
-    contactId: result.contactId,
-    platform: message.platform,
-    isFirstMessage: result.isFirstMessage,
-  };
-  await messageQueue().add('process-inbound', inboundJob, {
-    jobId: `inbound:${result.messageId}`,
   });
-
-  // First message and keyword automations both start from the same event.
-  const automationJob: AutomationJob = {
-    organizationId,
-    conversationId: result.conversationId,
-    contactId: result.contactId,
-    messageId: result.messageId,
-    triggerType: result.isFirstMessage
-      ? AutomationTriggerType.FIRST_MESSAGE
-      : AutomationTriggerType.KEYWORD,
-  };
-  await automationQueue().add('run-automation', automationJob);
 }

@@ -14,7 +14,8 @@ export function lexicalEmbedding(text: string, dimensions = LEXICAL_DIMENSIONS):
   const vector = new Array<number>(dimensions).fill(0);
   const tokens = text
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, ' ')
+    // Letters, combining marks and digits in any script (Bangla, Arabic, …).
+    .replace(/[^\p{L}\p{M}\p{N}\s]/gu, ' ')
     .split(/\s+/)
     .filter((t) => t.length > 1);
 

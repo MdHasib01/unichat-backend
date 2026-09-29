@@ -1,15 +1,12 @@
 import { Worker, type Job } from 'bullmq';
-import { MessageStatus } from '@prisma/client';
 import { env } from '../config/env';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { createRedisConnection } from '../lib/redis';
 import { QUEUE_NAMES, aiQueue, analyticsQueue, notificationQueue } from '../queues';
 import type { AIJob, AnalyticsJob, InboundMessageJob, NotificationJob, SendMessageJob } from '../queues/jobTypes';
-import { getProvider, resolveCredentials } from '../integrations/registry';
-import { markMessageFailed, markMessageSent } from '../services/message.service';
+import { deliverOutbound } from '../services/delivery.service';
 import { canAutoReply } from '../services/ai.service';
-import type { NormalizedAttachment } from '../integrations/types';
 
 /**
  * Inbound pipeline stage: after a message is stored, decide who should hear
@@ -59,7 +56,9 @@ export function createMessageWorker(): Worker<InboundMessageJob> {
 
       if (!allowed) logger.debug({ conversationId, reason }, 'ai auto-reply skipped');
 
-      await aiQueue().add('ai-respond', aiJob, { jobId: `ai:${messageId}` });
+      // Waiting a moment lets a burst of messages be answered as one; the AI
+      // worker skips any job whose message is no longer the latest.
+      await aiQueue().add('ai-respond', aiJob, { jobId: `ai:${messageId}`, delay: env.AI_DEBOUNCE_MS });
 
       const analytics: AnalyticsJob = { organizationId, kind: 'rollup_day' };
       await analyticsQueue().add('rollup', analytics, {
@@ -80,48 +79,9 @@ export function createSendWorker(): Worker<SendMessageJob> {
   return new Worker<SendMessageJob>(
     QUEUE_NAMES.MESSAGE_SENDING,
     async (job: Job<SendMessageJob>) => {
-      const { organizationId, messageId, socialAccountId, platform, recipientExternalId } = job.data;
-
-      const message = await prisma.message.findFirst({
-        where: { id: messageId, organizationId },
-        select: { id: true, status: true },
+      await deliverOutbound(job.data, {
+        finalAttempt: job.attemptsMade + 1 >= (job.opts.attempts ?? 1),
       });
-      if (!message) return;
-      // Never send the same message twice on a retry of an already-sent job.
-      if (message.status !== MessageStatus.QUEUED) return;
-
-      if (!socialAccountId) {
-        await markMessageFailed(
-          organizationId,
-          messageId,
-          'This conversation has no connected channel to send from',
-        );
-        return;
-      }
-
-      try {
-        const credentials = await resolveCredentials(organizationId, socialAccountId);
-        const provider = getProvider(platform);
-
-        const result = await provider.sendMessage(credentials, {
-          recipientExternalId,
-          text: job.data.body ?? undefined,
-          attachments: job.data.attachments as NormalizedAttachment[] | undefined,
-        });
-
-        await markMessageSent(organizationId, messageId, result.externalMessageId);
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : 'Send failed';
-        const isLastAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
-
-        if (isLastAttempt) {
-          await markMessageFailed(organizationId, messageId, reason);
-          await prisma.socialAccount
-            .update({ where: { id: socialAccountId }, data: { lastError: reason.slice(0, 500) } })
-            .catch(() => undefined);
-        }
-        throw error;
-      }
     },
     { connection: createRedisConnection(), concurrency: env.WORKER_CONCURRENCY },
   );

@@ -1,17 +1,20 @@
-import { AutomationTriggerType, ConversationStatus } from '@prisma/client';
+import { AutomationTriggerType, ConversationStatus, MessageDirection, MessageStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { withLock } from '../lib/redis';
 import { analyticsQueue, automationQueue } from '../queues';
 import type { AnalyticsJob, AutomationJob } from '../queues/jobTypes';
+import { markMessageFailed } from '../services/message.service';
 
 /**
  * Recurring work that nothing else triggers.
  *
- * Two things need a clock rather than an event:
+ * Three things need a clock rather than an event:
  *   - the daily analytics rollup, so Insights reads pre-aggregated rows;
  *   - the CONVERSATION_IDLE automation trigger, which by definition fires
- *     because *nothing* happened.
+ *     because *nothing* happened;
+ *   - expiring sends that never left the queue, so no message sits "queued"
+ *     forever on the dashboard while the customer never received it.
  *
  * Every tick takes a distributed lock, so running several worker containers
  * does not schedule the same work more than once.
@@ -19,6 +22,9 @@ import type { AnalyticsJob, AutomationJob } from '../queues/jobTypes';
 
 const ANALYTICS_INTERVAL_MS = 15 * 60 * 1000;
 const IDLE_SCAN_INTERVAL_MS = 5 * 60 * 1000;
+const STUCK_SEND_SCAN_INTERVAL_MS = 2 * 60 * 1000;
+/** A send still QUEUED after this long was lost (e.g. Redis was down). */
+const STUCK_SEND_AFTER_MS = 15 * 60 * 1000;
 
 let timers: NodeJS.Timeout[] = [];
 
@@ -28,7 +34,11 @@ export function startScheduler(): void {
   timers = [
     setInterval(() => void safely('analytics rollup', scheduleAnalyticsRollups), ANALYTICS_INTERVAL_MS),
     setInterval(() => void safely('idle scan', scanIdleConversations), IDLE_SCAN_INTERVAL_MS),
+    setInterval(() => void safely('stuck sends', failStuckSends), STUCK_SEND_SCAN_INTERVAL_MS),
   ];
+
+  // Clean up anything left over from before this process started.
+  void safely('stuck sends', failStuckSends);
 
   // Prevent the timers from holding the process open during shutdown.
   for (const timer of timers) timer.unref();
@@ -132,5 +142,44 @@ export async function scanIdleConversations(): Promise<void> {
         );
       }
     }
+  });
+}
+
+/**
+ * Marks outbound messages that have been QUEUED for too long as FAILED. The
+ * customer never received them, so the dashboard must say so — and offer a
+ * retry — instead of showing them as still on their way. A late worker skips
+ * them, because it only sends messages that are still QUEUED.
+ */
+export async function failStuckSends(): Promise<void> {
+  await withLock('scheduler:stuck-sends', 90 * 1000, async () => {
+    const stuck = await prisma.message.findMany({
+      where: {
+        direction: MessageDirection.OUTBOUND,
+        status: MessageStatus.QUEUED,
+        isInternal: false,
+        createdAt: { lt: new Date(Date.now() - STUCK_SEND_AFTER_MS) },
+      },
+      select: { id: true, organizationId: true },
+      take: 500,
+    });
+
+    for (const message of stuck) {
+      // Only if it is *still* queued — a worker may have just sent it.
+      const claimed = await prisma.message.updateMany({
+        where: { id: message.id, status: MessageStatus.QUEUED },
+        data: { status: MessageStatus.FAILED },
+      });
+      if (claimed.count) {
+        // Records the reason and tells open dashboards.
+        await markMessageFailed(
+          message.organizationId,
+          message.id,
+          'Delivery timed out — the message never reached the customer',
+        );
+      }
+    }
+
+    if (stuck.length) logger.warn({ count: stuck.length }, 'marked stuck outbound messages as failed');
   });
 }

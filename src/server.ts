@@ -6,6 +6,7 @@ import { checkDatabase, disconnectPrisma } from './lib/prisma';
 import { checkRedis, closeRedis } from './lib/redis';
 import { closeQueues } from './queues';
 import { closeRealtime, initRealtime } from './realtime/socket';
+import { closeWidgetHub, initWidgetHub } from './realtime/widgetHub';
 import { startWorkers, stopWorkers } from './workers';
 
 async function bootstrap() {
@@ -13,6 +14,7 @@ async function bootstrap() {
   const server = http.createServer(app);
 
   initRealtime(server);
+  initWidgetHub();
 
   // Single-process mode for small VPS installs and local development; in
   // Docker the worker runs as its own service (spec sections 34 and 38).
@@ -41,6 +43,7 @@ async function bootstrap() {
     server.close(() => logger.info('http server closed'));
 
     await closeRealtime();
+    await closeWidgetHub();
     await stopWorkers();
     await closeQueues();
     await closeRedis();

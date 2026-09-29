@@ -107,7 +107,7 @@ export async function getPlatformBreakdown(organizationId: string, range: DateRa
     }),
   ]);
 
-  const platforms: Platform[] = [Platform.FACEBOOK, Platform.INSTAGRAM, Platform.WHATSAPP];
+  const platforms: Platform[] = [Platform.FACEBOOK, Platform.INSTAGRAM, Platform.WHATSAPP, Platform.WEBCHAT];
 
   return platforms.map((platform) => ({
     platform,

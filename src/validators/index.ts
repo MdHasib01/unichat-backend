@@ -428,3 +428,68 @@ export const simulateInboundSchema = z.object({
   senderName: z.string().trim().min(1).max(120).optional(),
   text: z.string().trim().min(1).max(2000),
 });
+
+// --- website chat ----------------------------------------------------------
+
+const widgetFields = {
+  name: z.string().trim().min(1).max(80),
+  isActive: z.boolean(),
+  allowedDomains: z.array(z.string().trim().min(1).max(253)).max(50),
+  position: z.enum(['BOTTOM_RIGHT', 'BOTTOM_LEFT']),
+  offsetX: z.number().int().min(0).max(200),
+  offsetY: z.number().int().min(0).max(200),
+  primaryColor: hexColor,
+  // Absolute, because the widget renders on the customer's own website.
+  logoUrl: z
+    .string()
+    .url()
+    .max(500)
+    .refine((v) => /^https?:\/\//.test(v), 'Use an http(s) image URL')
+    .nullable(),
+  launcherIcon: z.enum(['chat', 'help', 'message', 'logo']),
+  title: z.string().trim().min(1).max(60),
+  subtitle: z.string().trim().max(120).nullable(),
+  welcomeMessage: z.string().trim().max(500).nullable(),
+  inputPlaceholder: z.string().trim().min(1).max(80),
+  offlineMessage: z.string().trim().max(500).nullable(),
+  showBranding: z.boolean(),
+  preChatMode: z.enum(['OFF', 'OPTIONAL', 'REQUIRED']),
+  preChatFields: z.array(z.enum(['name', 'email', 'phone'])).max(3),
+};
+
+export const createWidgetSchema = z.object(widgetFields).partial().extend({ name: widgetFields.name });
+export const updateWidgetSchema = z.object(widgetFields).partial();
+
+// --- AI training -----------------------------------------------------------
+
+export const trainingExampleSchema = z.object({
+  question: z.string().trim().min(1).max(2000),
+  answer: z.string().trim().min(1).max(4000),
+  status: z.enum(['ACTIVE', 'DISABLED']).optional(),
+  source: z.enum(['MANUAL', 'INBOX']).optional(),
+  conversationId: cuid.optional(),
+  messageId: cuid.optional(),
+});
+
+export const updateTrainingExampleSchema = z.object({
+  question: z.string().trim().min(1).max(2000).optional(),
+  answer: z.string().trim().min(1).max(4000).optional(),
+  status: z.enum(['ACTIVE', 'DISABLED']).optional(),
+});
+
+export const listTrainingQuery = paginationQuery.extend({
+  source: z.enum(['MANUAL', 'INBOX', 'IMPORT']).optional(),
+  status: z.enum(['ACTIVE', 'DISABLED']).optional(),
+});
+
+export const bulkTrainingSchema = z.object({
+  ids: z.array(cuid).min(1).max(500),
+  action: z.enum(['enable', 'disable', 'delete']),
+});
+
+export const trainingImportQuery = z.object({
+  dryRun: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+});

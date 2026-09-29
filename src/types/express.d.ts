@@ -1,5 +1,7 @@
 import type { MemberRole } from '@prisma/client';
 import type { Permission } from '../config/permissions';
+import type { PublicWidget } from '../services/webchat.service';
+import type { VisitorClaims } from '../services/widgetToken.service';
 
 export interface AuthContext {
   userId: string;
@@ -23,6 +25,10 @@ declare global {
       rawBody?: Buffer;
       auth?: AuthContext;
       tenant?: TenantContext;
+      /** Public website-chat routes: the widget resolved from its key. */
+      widget?: PublicWidget;
+      /** Public website-chat routes: the verified visitor. */
+      visitor?: VisitorClaims;
     }
   }
 }

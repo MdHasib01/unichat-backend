@@ -381,7 +381,8 @@ export async function listIntegrations(organizationId: string) {
       },
     }),
     prisma.socialAccount.findMany({
-      where: { organizationId },
+      // Website chat widgets are listed by their own endpoint.
+      where: { organizationId, platform: { not: Platform.WEBCHAT } },
       orderBy: [{ platform: 'asc' }, { name: 'asc' }],
       select: {
         id: true,
@@ -462,7 +463,8 @@ export async function disconnectAccount(organizationId: string, socialAccountId:
 export async function disconnectMeta(organizationId: string) {
   await prisma.$transaction([
     prisma.socialAccount.updateMany({
-      where: { organizationId },
+      // Website chat widgets are not Meta channels and stay connected.
+      where: { organizationId, platform: { not: Platform.WEBCHAT } },
       data: { isActive: false, subscribed: false, status: IntegrationStatus.DISCONNECTED, accessTokenEnc: null },
     }),
     prisma.integration.updateMany({

@@ -3,7 +3,8 @@ import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { getEmbeddingProvider } from '../provider.factory';
 import { chunkText, lexicalEmbedding } from './embedding';
-import { estimateTokens } from '../types';
+import { embedMany, estimateTokens } from '../types';
+import { bumpKnowledgeVersion } from './vectorCache';
 
 /**
  * Ingestion step of the RAG pipeline: document → chunking → embedding →
@@ -33,48 +34,38 @@ export async function ingestDocument(organizationId: string, documentId: string)
     const chunks = chunkText(document.content);
     const provider = getEmbeddingProvider(assistant?.provider);
 
-    // Replace previous chunks so re-ingestion is idempotent.
-    await prisma.aIKnowledgeChunk.deleteMany({ where: { documentId, organizationId } });
+    // One batched call instead of one request per chunk.
+    let vectors: Array<{ embedding: number[]; model: string }>;
+    try {
+      vectors = (await embedMany(provider, chunks)).map((r, i) =>
+        r.embedding.length ? r : { embedding: lexicalEmbedding(chunks[i]), model: 'mock-lexical-256' },
+      );
+    } catch (error) {
+      logger.warn({ err: error, documentId }, 'embedding failed, using lexical fallback');
+      vectors = chunks.map((content) => ({ embedding: lexicalEmbedding(content), model: 'mock-lexical-256' }));
+    }
 
     let totalTokens = 0;
-    const rows: Array<{
-      organizationId: string;
-      documentId: string;
-      chunkIndex: number;
-      content: string;
-      tokenCount: number;
-      embedding: number[];
-      embeddingModel: string;
-    }> = [];
-
-    for (const [index, content] of chunks.entries()) {
-      let embedding: number[];
-      let model = 'mock-lexical-256';
-
-      try {
-        const result = await provider.generateEmbedding(content);
-        embedding = result.embedding.length ? result.embedding : lexicalEmbedding(content);
-        model = result.embedding.length ? result.model : model;
-      } catch (error) {
-        logger.warn({ err: error, documentId }, 'embedding failed for chunk, using lexical fallback');
-        embedding = lexicalEmbedding(content);
-      }
-
+    const rows = chunks.map((content, index) => {
       const tokenCount = estimateTokens(content);
       totalTokens += tokenCount;
-
-      rows.push({
+      return {
         organizationId,
         documentId,
         chunkIndex: index,
         content,
         tokenCount,
-        embedding,
-        embeddingModel: model,
-      });
-    }
+        embedding: vectors[index].embedding,
+        embeddingModel: vectors[index].model,
+      };
+    });
 
-    if (rows.length) await prisma.aIKnowledgeChunk.createMany({ data: rows });
+    // Swap old chunks for new in one step so re-ingestion is idempotent and a
+    // failed embedding never leaves the document empty.
+    await prisma.$transaction([
+      prisma.aIKnowledgeChunk.deleteMany({ where: { documentId, organizationId } }),
+      prisma.aIKnowledgeChunk.createMany({ data: rows }),
+    ]);
 
     await prisma.aIKnowledgeDocument.update({
       where: { id: documentId },
@@ -86,6 +77,7 @@ export async function ingestDocument(organizationId: string, documentId: string)
       },
     });
 
+    await bumpKnowledgeVersion(organizationId);
     logger.info({ documentId, organizationId, chunks: rows.length }, 'knowledge document ingested');
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Ingestion failed';

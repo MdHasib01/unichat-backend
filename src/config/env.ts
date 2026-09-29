@@ -50,10 +50,23 @@ const schema = z.object({
     ),
 
   AI_PROVIDER: z.enum(['openai', 'anthropic', 'mock']).default('mock'),
-  AI_MODEL: z.string().default('claude-sonnet-5'),
+  AI_MODEL: z.string().default('claude-opus-5-5'),
   AI_EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
+  // Reasoning effort for Claude replies. Customer chat reads well at "low".
+  AI_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('low'),
+  // Wait this long after an inbound message before answering, so a customer
+  // who sends three quick messages gets one reply that covers all three.
+  AI_DEBOUNCE_MS: z.coerce.number().int().min(0).max(30_000).default(2_500),
+  // Per-organization ceiling on automatic replies, so one busy tenant cannot
+  // starve the others on a shared worker.
+  AI_ORG_REPLIES_PER_MIN: z.coerce.number().int().positive().default(60),
+  // In-process cache of knowledge vectors, shared by all tenants (LRU).
+  AI_VECTOR_CACHE_MB: z.coerce.number().int().positive().default(200),
+
+  // Signs website-chat visitor tokens. Derived from JWT_ACCESS_SECRET if unset.
+  WIDGET_TOKEN_SECRET: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(16).optional()),
 
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(300),

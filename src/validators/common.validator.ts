@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const idParam = z.object({ id: z.string().min(1) });
+export const messageParam = z.object({ id: z.string().min(1), messageId: z.string().min(1) });
 
 export const paginationQuery = z.object({
   page: z.coerce.number().int().positive().default(1),
@@ -18,8 +19,8 @@ export const hexColor = z
   .string()
   .regex(/^#[0-9a-fA-F]{6}$/, 'Use a hex colour such as #6366f1');
 
-export const platformEnum = z.enum(['FACEBOOK', 'INSTAGRAM', 'WHATSAPP', 'INTERNAL']);
-export const messagingPlatformEnum = z.enum(['FACEBOOK', 'INSTAGRAM', 'WHATSAPP']);
+export const platformEnum = z.enum(['FACEBOOK', 'INSTAGRAM', 'WHATSAPP', 'WEBCHAT', 'INTERNAL']);
+export const messagingPlatformEnum = z.enum(['FACEBOOK', 'INSTAGRAM', 'WHATSAPP', 'WEBCHAT']);
 export const conversationStatusEnum = z.enum(['OPEN', 'PENDING', 'RESOLVED', 'SNOOZED']);
 export const conversationPriorityEnum = z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']);
 export const memberRoleEnum = z.enum(['OWNER', 'ADMIN', 'MANAGER', 'AGENT']);

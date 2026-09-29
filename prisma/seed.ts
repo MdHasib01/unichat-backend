@@ -28,11 +28,12 @@ import {
 import argon2 from 'argon2';
 import { ALL_PERMISSIONS, PERMISSION_DESCRIPTIONS, ROLE_PERMISSIONS } from '../src/config/permissions';
 import { chunkText, lexicalEmbedding } from '../src/ai/rag/embedding';
+import { questionHash } from '../src/ai/training/normalize';
 import { DEFAULT_BUSINESS_HOURS } from '../src/utils/businessHours';
 
 const prisma = new PrismaClient();
 
-const DEMO_PASSWORD = process.env.SEED_PASSWORD ?? 'Unichat2025!';
+const DEMO_PASSWORD = process.env.SEED_PASSWORD ?? 'Unichat2026!';
 
 async function hash(password: string) {
   return argon2.hash(password, { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 });
@@ -258,17 +259,17 @@ async function seedOrganization(options: SeedOrgOptions) {
 
   const contactSeeds = options.rich
     ? [
-        { name: 'Amelia Rahman', platform: Platform.FACEBOOK, city: 'Dhaka' },
-        { name: 'Daniel Okoro', platform: Platform.WHATSAPP, city: 'Lagos' },
-        { name: 'Priya Nair', platform: Platform.INSTAGRAM, city: 'Mumbai' },
-        { name: 'Tom Alvarez', platform: Platform.FACEBOOK, city: 'Madrid' },
-        { name: 'Sara Lindqvist', platform: Platform.WHATSAPP, city: 'Stockholm' },
-        { name: 'Kenji Watanabe', platform: Platform.INSTAGRAM, city: 'Osaka' },
-      ]
+      { name: 'Amelia Rahman', platform: Platform.FACEBOOK, city: 'Dhaka' },
+      { name: 'Daniel Okoro', platform: Platform.WHATSAPP, city: 'Lagos' },
+      { name: 'Priya Nair', platform: Platform.INSTAGRAM, city: 'Mumbai' },
+      { name: 'Tom Alvarez', platform: Platform.FACEBOOK, city: 'Madrid' },
+      { name: 'Sara Lindqvist', platform: Platform.WHATSAPP, city: 'Stockholm' },
+      { name: 'Kenji Watanabe', platform: Platform.INSTAGRAM, city: 'Osaka' },
+    ]
     : [
-        { name: 'Lucia Ferrari', platform: Platform.FACEBOOK, city: 'Milan' },
-        { name: 'Omar Haddad', platform: Platform.WHATSAPP, city: 'Cairo' },
-      ];
+      { name: 'Lucia Ferrari', platform: Platform.FACEBOOK, city: 'Milan' },
+      { name: 'Omar Haddad', platform: Platform.WHATSAPP, city: 'Cairo' },
+    ];
 
   const conversationScripts: Array<Array<{ from: 'customer' | 'agent' | 'ai'; text: string }>> = [
     [
@@ -543,29 +544,29 @@ async function seedOrganization(options: SeedOrgOptions) {
 
   const knowledgeDocs = options.rich
     ? [
-        {
-          title: 'Shipping & delivery',
-          content: `${options.name} ships worldwide. Domestic orders arrive in 2–4 business days and international orders in 5–9 business days. Shipping is a flat $12 and free on orders over $150. Every order includes tracking, sent by message as soon as the parcel leaves our warehouse.`,
-        },
-        {
-          title: 'Returns & refunds',
-          content: `Unused items can be returned within 30 days of delivery for a full refund. Start a return by messaging us with your order number. Refunds are issued to the original payment method within 5 business days of the parcel arriving back with us. Sale items are final and cannot be returned.`,
-        },
-        {
-          title: 'Pricing & packages',
-          content: `${options.name} offers three packages. Starter is $49 per month and covers one channel with up to 500 conversations. Growth is $99 per month, covers all three channels and adds automation. Premium starts at $149 per month and adds priority support, unlimited AI replies and a dedicated success manager.`,
-        },
-        {
-          title: 'Opening hours & contact',
-          content: `Our team answers messages Monday to Friday, 9:00 to 18:00 (${options.timezone}). Outside those hours the assistant replies and a person follows up the next working morning. You can reach us on Facebook Messenger, Instagram Direct or WhatsApp — all three land in the same inbox.`,
-        },
-      ]
+      {
+        title: 'Shipping & delivery',
+        content: `${options.name} ships worldwide. Domestic orders arrive in 2–4 business days and international orders in 5–9 business days. Shipping is a flat $12 and free on orders over $150. Every order includes tracking, sent by message as soon as the parcel leaves our warehouse.`,
+      },
+      {
+        title: 'Returns & refunds',
+        content: `Unused items can be returned within 30 days of delivery for a full refund. Start a return by messaging us with your order number. Refunds are issued to the original payment method within 5 business days of the parcel arriving back with us. Sale items are final and cannot be returned.`,
+      },
+      {
+        title: 'Pricing & packages',
+        content: `${options.name} offers three packages. Starter is $49 per month and covers one channel with up to 500 conversations. Growth is $99 per month, covers all three channels and adds automation. Premium starts at $149 per month and adds priority support, unlimited AI replies and a dedicated success manager.`,
+      },
+      {
+        title: 'Opening hours & contact',
+        content: `Our team answers messages Monday to Friday, 9:00 to 18:00 (${options.timezone}). Outside those hours the assistant replies and a person follows up the next working morning. You can reach us on Facebook Messenger, Instagram Direct or WhatsApp — all three land in the same inbox.`,
+      },
+    ]
     : [
-        {
-          title: 'About us',
-          content: `${options.name} is a ${options.industry.toLowerCase()} business. We answer messages Monday to Saturday and ship locally within 2 business days.`,
-        },
-      ];
+      {
+        title: 'About us',
+        content: `${options.name} is a ${options.industry.toLowerCase()} business. We answer messages Monday to Saturday and ship locally within 2 business days.`,
+      },
+    ];
 
   for (const doc of knowledgeDocs) {
     const existing = await prisma.aIKnowledgeDocument.findFirst({
@@ -605,11 +606,11 @@ async function seedOrganization(options: SeedOrgOptions) {
 
   const productSeeds = options.rich
     ? [
-        { name: 'Starter plan', sku: 'PLAN-STARTER', price: 49, category: 'Plans', stock: 999 },
-        { name: 'Growth plan', sku: 'PLAN-GROWTH', price: 99, category: 'Plans', stock: 999 },
-        { name: 'Premium plan', sku: 'PLAN-PREMIUM', price: 149, category: 'Plans', stock: 999 },
-        { name: 'Onboarding workshop', sku: 'SVC-ONBOARD', price: 299, category: 'Services', stock: 20 },
-      ]
+      { name: 'Starter plan', sku: 'PLAN-STARTER', price: 49, category: 'Plans', stock: 999 },
+      { name: 'Growth plan', sku: 'PLAN-GROWTH', price: 99, category: 'Plans', stock: 999 },
+      { name: 'Premium plan', sku: 'PLAN-PREMIUM', price: 149, category: 'Plans', stock: 999 },
+      { name: 'Onboarding workshop', sku: 'SVC-ONBOARD', price: 299, category: 'Services', stock: 20 },
+    ]
     : [{ name: 'Signature blend', sku: 'ITEM-001', price: 24.5, category: 'Retail', stock: 80 }];
 
   const products = [];
@@ -717,6 +718,85 @@ async function seedOrganization(options: SeedOrgOptions) {
     }
   }
 
+  // --- website chat + approved answers ------------------------------------
+
+  if (options.rich) {
+    const webchatIntegration = await prisma.integration.upsert({
+      where: { organizationId_provider: { organizationId: organization.id, provider: IntegrationProvider.WEBCHAT } },
+      create: {
+        organizationId: organization.id,
+        provider: IntegrationProvider.WEBCHAT,
+        status: IntegrationStatus.CONNECTED,
+        displayName: 'Website chat',
+      },
+      update: {},
+    });
+
+    // A fixed key so scripts/widget-test.html works straight after seeding.
+    const widgetKey = `wk_demo_${options.slug.replace(/[^a-z0-9]/g, '')}`;
+    const widgetAccount = await prisma.socialAccount.upsert({
+      where: { platform_externalId: { platform: Platform.WEBCHAT, externalId: widgetKey } },
+      create: {
+        organizationId: organization.id,
+        integrationId: webchatIntegration.id,
+        type: SocialAccountType.WEBCHAT_WIDGET,
+        platform: Platform.WEBCHAT,
+        externalId: widgetKey,
+        name: 'Main website',
+        status: IntegrationStatus.CONNECTED,
+        subscribed: true,
+      },
+      update: {},
+    });
+
+    await prisma.chatWidget.upsert({
+      where: { socialAccountId: widgetAccount.id },
+      create: {
+        organizationId: organization.id,
+        socialAccountId: widgetAccount.id,
+        publicKey: widgetKey,
+        name: 'Main website',
+        title: `Chat with ${options.name}`,
+        preChatMode: 'OPTIONAL',
+        preChatFields: ['name', 'email'],
+      },
+      update: {},
+    });
+
+    const approvedAnswers = [
+      {
+        question: 'Do you ship internationally?',
+        answer: 'Yes! We ship to over 40 countries. International delivery usually takes 5–8 business days, and you get a tracking link as soon as your parcel leaves our warehouse.',
+      },
+      {
+        question: 'What are your opening hours?',
+        answer: 'Our team is online Monday to Friday, 9:00–18:00. Messages sent outside those hours are answered first thing the next working day.',
+      },
+      {
+        question: 'Can I return an item?',
+        answer: 'Of course. You can return any unused item within 30 days of delivery. Just reply here with your order number and we will send you a free return label.',
+      },
+    ];
+
+    for (const pair of approvedAnswers) {
+      const hash = questionHash(pair.question);
+      await prisma.aITrainingExample.upsert({
+        where: { organizationId_questionHash: { organizationId: organization.id, questionHash: hash } },
+        create: {
+          organizationId: organization.id,
+          question: pair.question,
+          answer: pair.answer,
+          questionHash: hash,
+          source: 'MANUAL',
+          createdById: owner.id,
+          embedding: lexicalEmbedding(pair.question),
+          embeddingModel: 'mock-lexical-256',
+        },
+        update: {},
+      });
+    }
+  }
+
   console.log(`  ${options.name}: owner ${options.owner.email}, ${contacts.length} contacts`);
   return organization;
 }
@@ -734,11 +814,11 @@ async function main() {
     website: 'https://demo-business.example.com',
     currency: 'USD',
     timezone: 'UTC',
-    owner: { email: 'owner@demo.unichat.app', firstName: 'Dana', lastName: 'Owens' },
+    owner: { email: 'owner@unichat.app', firstName: 'Dana', lastName: 'Owens' },
     agents: [
-      { email: 'admin@demo.unichat.app', firstName: 'Sam', lastName: 'Taylor', role: MemberRole.ADMIN },
-      { email: 'manager@demo.unichat.app', firstName: 'Morgan', lastName: 'Lee', role: MemberRole.MANAGER },
-      { email: 'agent@demo.unichat.app', firstName: 'Alex', lastName: 'Rivera', role: MemberRole.AGENT },
+      { email: 'admin@unichat.app', firstName: 'Sam', lastName: 'Taylor', role: MemberRole.ADMIN },
+      { email: 'manager@unichat.app', firstName: 'Morgan', lastName: 'Lee', role: MemberRole.MANAGER },
+      { email: 'agent@unichat.app', firstName: 'Alex', lastName: 'Rivera', role: MemberRole.AGENT },
     ],
     rich: true,
   });
@@ -760,10 +840,10 @@ async function main() {
   });
 
   console.log('\nSeed complete. Sign in with:');
-  console.log(`  owner@demo.unichat.app       / ${DEMO_PASSWORD}   (OWNER, Demo Business)`);
-  console.log(`  admin@demo.unichat.app       / ${DEMO_PASSWORD}   (ADMIN)`);
-  console.log(`  manager@demo.unichat.app     / ${DEMO_PASSWORD}   (MANAGER)`);
-  console.log(`  agent@demo.unichat.app       / ${DEMO_PASSWORD}   (AGENT)`);
+  console.log(`  owner@unichat.app       / ${DEMO_PASSWORD}   (OWNER, Demo Business)`);
+  console.log(`  admin@unichat.app       / ${DEMO_PASSWORD}   (ADMIN)`);
+  console.log(`  manager@unichat.app     / ${DEMO_PASSWORD}   (MANAGER)`);
+  console.log(`  agent@unichat.app       / ${DEMO_PASSWORD}   (AGENT)`);
   console.log(`  owner@northside.unichat.app  / ${DEMO_PASSWORD}   (OWNER, Northside Coffee)`);
 }
 

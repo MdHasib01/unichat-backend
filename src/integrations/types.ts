@@ -50,6 +50,8 @@ export interface SendMessagePayload {
   recipientExternalId: string;
   text?: string;
   attachments?: NormalizedAttachment[];
+  /** Our Message id — lets channels without a provider API (website chat) push the stored row. */
+  messageId?: string;
   /** WhatsApp template sends outside the 24-hour window. */
   template?: { name: string; language: string; components?: unknown[] };
 }

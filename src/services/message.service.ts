@@ -37,8 +37,12 @@ export interface CreateOutboundInput {
  * Queues an outbound message.
  *
  * The message row is written immediately with status QUEUED so the agent sees
- * it instantly, then the message-sending queue talks to the provider. Network
- * calls never happen inside the request (spec sections 13 and 15).
+ * it instantly, then the message-sending queue talks to the provider. The row
+ * is the single source of truth: customers only ever see a message once its
+ * status says it was delivered, and the dashboard shows that same status.
+ *
+ * Returns the row as it stands after dispatch — QUEUED when the queue took it,
+ * or already SENT / FAILED when it had to be delivered inline.
  */
 export async function queueOutboundMessage(input: CreateOutboundInput) {
   const conversation = await prisma.conversation.findFirst({
@@ -104,9 +108,89 @@ export async function queueOutboundMessage(input: CreateOutboundInput) {
     attachments: input.attachments,
   };
 
-  await sendQueue().add('send-message', job, { jobId: `send:${message.id}` });
+  return dispatchOutbound(job, `send:${message.id}`);
+}
 
-  return message;
+/**
+ * Hands a QUEUED message to the send queue. If the queue is unreachable
+ * (Redis down), the message is delivered inline instead of being left
+ * half-sent: the result — SENT, or FAILED with the provider's reason — is
+ * written to the row either way, and the up-to-date row is returned.
+ */
+async function dispatchOutbound(job: SendMessageJob, jobId: string) {
+  try {
+    await sendQueue().add('send-message', job, { jobId });
+  } catch (error) {
+    logger.warn(
+      { err: error, messageId: job.messageId },
+      'send queue unavailable; delivering the message inline',
+    );
+    // Imported lazily: the provider registry depends back on this module.
+    const { deliverOutbound } = await import('./delivery.service');
+    await deliverOutbound(job, { finalAttempt: true }).catch(async (deliveryError) => {
+      const reason = deliveryError instanceof Error ? deliveryError.message : 'Send failed';
+      await markMessageFailed(job.organizationId, job.messageId, reason).catch(() => undefined);
+    });
+  }
+
+  return prisma.message.findUniqueOrThrow({ where: { id: job.messageId }, include: messageInclude });
+}
+
+/**
+ * Sends a FAILED message again — same row, so the conversation shows one
+ * message whose status moves from failed to sent.
+ */
+export async function retryOutboundMessage(organizationId: string, conversationId: string, messageId: string) {
+  const message = await prisma.message.findFirst({
+    where: { id: messageId, organizationId, conversationId },
+    include: {
+      conversation: { include: { contact: { include: { identifiers: true } } } },
+    },
+  });
+  if (!message || message.direction !== MessageDirection.OUTBOUND || message.isInternal) {
+    throw new NotFoundError('Message');
+  }
+  if (message.status !== MessageStatus.FAILED) {
+    throw new BadRequestError('Only messages that failed to send can be retried', [], 'NOT_FAILED');
+  }
+
+  const identifier = message.conversation.contact.identifiers.find(
+    (i) => i.platform === message.conversation.platform,
+  );
+  if (!identifier) {
+    throw new BadRequestError(
+      `This contact has no ${message.conversation.platform} identity, so the message cannot be delivered`,
+      [],
+      'NO_PLATFORM_IDENTITY',
+    );
+  }
+
+  // Claim the retry atomically so a double click cannot send it twice.
+  const claimed = await prisma.message.updateMany({
+    where: { id: messageId, organizationId, status: MessageStatus.FAILED },
+    data: { status: MessageStatus.QUEUED, errorMessage: null },
+  });
+  if (claimed.count === 0) throw new BadRequestError('This message is already being retried', [], 'NOT_FAILED');
+
+  const queued = await prisma.message.findUniqueOrThrow({ where: { id: messageId }, include: messageInclude });
+  await emitRealtime(organizationId, RealtimeEvent.MESSAGE_UPDATED, queued, { conversationId });
+
+  return dispatchOutbound(
+    {
+      organizationId,
+      messageId,
+      conversationId,
+      platform: message.conversation.platform,
+      // The conversation's current channel, in case it was reconnected.
+      socialAccountId: message.conversation.socialAccountId,
+      recipientExternalId: identifier.externalId,
+      body: message.body,
+      type: message.type,
+      attachments: (message.attachments as SendMessageJob['attachments']) ?? undefined,
+    },
+    // A fresh job id: BullMQ keeps failed jobs, and would ignore a reused one.
+    `send:${messageId}:retry:${Date.now()}`,
+  );
 }
 
 function attachmentMessageType(attachment: NormalizedAttachment): MessageType {

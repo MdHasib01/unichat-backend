@@ -16,6 +16,7 @@ export const PERMISSIONS = {
 
   AI_READ: 'ai.read',
   AI_MANAGE: 'ai.manage',
+  AI_TRAIN: 'ai.train',
 
   INTEGRATIONS_READ: 'integrations.read',
   INTEGRATIONS_MANAGE: 'integrations.manage',
@@ -53,6 +54,7 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   'automation.delete': 'Delete automations',
   'ai.read': 'View AI assistant configuration and knowledge',
   'ai.manage': 'Configure the AI assistant and knowledge base',
+  'ai.train': 'Teach the AI approved answers from conversations and Q&A pairs',
   'integrations.read': 'View connected channels',
   'integrations.manage': 'Connect and disconnect channels',
   'team.read': 'View team members',
@@ -86,6 +88,7 @@ const AGENT_PERMISSIONS: Permission[] = [
 const MANAGER_PERMISSIONS: Permission[] = [
   ...AGENT_PERMISSIONS,
   PERMISSIONS.CONVERSATIONS_ASSIGN,
+  PERMISSIONS.AI_TRAIN,
   PERMISSIONS.AUTOMATION_CREATE,
   PERMISSIONS.AUTOMATION_UPDATE,
   PERMISSIONS.ANALYTICS_READ,

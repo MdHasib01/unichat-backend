@@ -13,8 +13,8 @@ import {
   setConversationTags,
   updateConversation,
 } from '../services/conversation.service';
-import { queueOutboundMessage } from '../services/message.service';
-import { generateAnswer } from '../services/ai.service';
+import { queueOutboundMessage, retryOutboundMessage } from '../services/message.service';
+import { generateAnswer, pendingInboundBatch } from '../services/ai.service';
 import { renderTemplate } from '../services/automation.service';
 import { auditFromRequest } from '../services/audit.service';
 
@@ -96,7 +96,25 @@ export async function sendMessageController(req: Request, res: Response) {
     attachments: req.body.attachments,
   });
 
-  return created(res, message, 'Message queued');
+  return created(res, message, deliveryMessage(message.status, message.errorMessage));
+}
+
+/** Sends a failed message again. The same row moves from FAILED to SENT. */
+export async function retryMessageController(req: Request, res: Response) {
+  const message = await retryOutboundMessage(req.tenant!.organizationId, req.params.id, req.params.messageId);
+  return ok(res, message, deliveryMessage(message.status, message.errorMessage));
+}
+
+/** Tells the agent exactly what the customer will (or will not) see. */
+function deliveryMessage(status: string, error: string | null): string {
+  switch (status) {
+    case 'FAILED':
+      return `Not delivered — the customer has not received this message${error ? `: ${error}` : ''}`;
+    case 'QUEUED':
+      return 'Message queued';
+    default:
+      return 'Message sent';
+  }
 }
 
 export async function updateConversationController(req: Request, res: Response) {
@@ -160,18 +178,28 @@ export async function addNoteController(req: Request, res: Response) {
 export async function suggestReplyController(req: Request, res: Response) {
   const organizationId = req.tenant!.organizationId;
 
-  const lastInbound = await prisma.message.findFirst({
-    where: { organizationId, conversationId: req.params.id, direction: 'INBOUND' },
-    orderBy: { createdAt: 'desc' },
-    select: { body: true },
-  });
+  // Answer everything the customer sent since the last reply, falling back to
+  // their most recent message when the thread is already answered.
+  const batch = await pendingInboundBatch(organizationId, req.params.id);
+  let question = batch.question;
+  let historyBefore = batch.startedAt;
 
-  if (!lastInbound?.body) {
-    return ok(res, { suggestion: null }, 'There is no customer message to reply to yet');
+  if (!question) {
+    const lastInbound = await prisma.message.findFirst({
+      where: { organizationId, conversationId: req.params.id, direction: 'INBOUND' },
+      orderBy: { createdAt: 'desc' },
+      select: { body: true, createdAt: true },
+    });
+    if (!lastInbound?.body) {
+      return ok(res, { suggestion: null }, 'There is no customer message to reply to yet');
+    }
+    question = lastInbound.body;
+    historyBefore = lastInbound.createdAt;
   }
 
-  const answer = await generateAnswer(organizationId, lastInbound.body, {
+  const answer = await generateAnswer(organizationId, question, {
     conversationId: req.params.id,
+    historyBefore,
   });
 
   return ok(

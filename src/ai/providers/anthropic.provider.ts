@@ -1,14 +1,60 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { env } from '../../config/env';
+import { logger } from '../../lib/logger';
 import { IntegrationError } from '../../utils/errors';
-import { estimateTokens, type AIMessage, type AIProvider, type EmbeddingResult, type GenerateOptions, type GenerateResult } from '../types';
+import {
+  estimateTokens,
+  withContext,
+  type AIMessage,
+  type AIProvider,
+  type EmbeddingResult,
+  type GenerateOptions,
+  type GenerateResult,
+} from '../types';
+
+/** Current default; organizations can pick another model in AI Setup. */
+export const DEFAULT_ANTHROPIC_MODEL = 'claude-opus-5-5';
+
+/** Shape every reply must take — enforced by structured outputs. */
+const ANSWER_SCHEMA = {
+  type: 'object',
+  properties: {
+    answer: { type: 'string', description: 'The reply to send to the customer. Empty when you cannot answer.' },
+    confidence: { type: 'number', description: 'How sure you are the answer is correct and grounded, 0 to 1.' },
+    can_answer: { type: 'boolean', description: 'False when the business knowledge does not cover the question.' },
+  },
+  required: ['answer', 'confidence', 'can_answer'],
+  additionalProperties: false,
+} as const;
+
+/** Models that take `output_config.effort` (Haiku 4.5 and older models reject it). */
+function supportsEffort(model: string): boolean {
+  return /^claude-(fable|mythos|opus-5|sonnet-5|opus-4-[5-9]|sonnet-4-[6-9])/.test(model);
+}
+
+/** Models with structured outputs; older ones fall back to prompt-only JSON. */
+function supportsStructuredOutput(model: string): boolean {
+  return /^claude-(fable|mythos|opus-5|sonnet-5|opus-4-[1-9]|sonnet-4-[5-9]|haiku-4-5)/.test(model);
+}
+
+/**
+ * Server-side refusal fallback: if a safety classifier declines, the API
+ * re-runs the same request on a suitable model inside the same call.
+ */
+function supportsFallbacks(model: string): boolean {
+  return /^claude-(fable-5|opus-5|sonnet-5-5)/.test(model);
+}
+
+const FALLBACK_BETA = 'server-side-fallback-2026-07-01';
 
 /**
  * Anthropic adapter (spec section 23).
  *
- * The assistant is asked to answer as JSON so we get a usable confidence
- * signal for the auto-reply threshold; malformed output degrades to the raw
- * text with a low confidence rather than failing the reply.
+ * Request layout is built for prompt caching — the cache is a prefix match:
+ *   system (persona + rules, stable)          ← breakpoint
+ *   conversation history (grows append-only)  ← breakpoint on the last turn
+ *   final user turn: retrieved knowledge + the customer's message (volatile)
+ * so each new message re-reads the cached prefix instead of paying for it again.
  */
 export class AnthropicProvider implements AIProvider {
   readonly name = 'anthropic';
@@ -19,24 +65,80 @@ export class AnthropicProvider implements AIProvider {
   constructor(apiKey?: string) {
     const key = apiKey ?? env.ANTHROPIC_API_KEY;
     if (!key) throw new IntegrationError('ANTHROPIC_API_KEY is not configured');
-    this.client = new Anthropic({ apiKey: key });
+    // A customer is waiting: fail fast and let the job's retry/handoff take over.
+    this.client = new Anthropic({ apiKey: key, timeout: 45_000, maxRetries: 2 });
   }
 
   async generateResponse(messages: AIMessage[], options: GenerateOptions): Promise<GenerateResult> {
-    const system = [options.system, messages.find((m) => m.role === 'system')?.content]
+    const model = options.model?.startsWith('claude-') ? options.model : DEFAULT_ANTHROPIC_MODEL;
+
+    const system = [options.system, ...messages.filter((m) => m.role === 'system').map((m) => m.content)]
       .filter(Boolean)
       .join('\n\n');
 
-    const conversation = messages
-      .filter((m) => m.role !== 'system')
-      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+    const turns = withContext(
+      dropLeadingAssistant(messages.filter((m) => m.role !== 'system' && m.content.trim())),
+      options.context,
+    );
 
-    const response = await this.client.messages.create({
-      model: options.model || 'claude-opus-5',
-      max_tokens: options.maxTokens ?? 1024,
-      system,
+    const conversation: Anthropic.Beta.BetaMessageParam[] = turns.map((m, index) => ({
+      role: m.role as 'user' | 'assistant',
+      content: [
+        {
+          type: 'text',
+          text: m.content,
+          // Cache everything up to the last history turn.
+          ...(index === turns.length - 2 ? { cache_control: { type: 'ephemeral' as const } } : {}),
+        },
+      ],
+    }));
+
+    const structured = supportsStructuredOutput(model);
+    const outputConfig: Anthropic.Beta.BetaOutputConfig = {};
+    if (structured) outputConfig.format = { type: 'json_schema', schema: ANSWER_SCHEMA as unknown as Record<string, unknown> };
+    if (supportsEffort(model)) outputConfig.effort = env.AI_EFFORT;
+
+    const response = await this.client.beta.messages.create({
+      model,
+      // Thinking can't be switched off on current models and counts toward
+      // max_tokens, so leave headroom; reply length is set by the prompt.
+      max_tokens: 16_000,
+      system: system ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }] : undefined,
       messages: conversation,
+      ...(Object.keys(outputConfig).length ? { output_config: outputConfig } : {}),
+      ...(supportsFallbacks(model) ? { fallbacks: 'default' as const, betas: [FALLBACK_BETA] } : {}),
     });
+
+    const usage = response.usage;
+    logger.debug(
+      {
+        model: response.model,
+        input: usage.input_tokens,
+        output: usage.output_tokens,
+        cacheRead: usage.cache_read_input_tokens ?? 0,
+        cacheWrite: usage.cache_creation_input_tokens ?? 0,
+        stopReason: response.stop_reason,
+      },
+      'anthropic reply',
+    );
+
+    const tokensUsed =
+      usage.input_tokens +
+      usage.output_tokens +
+      (usage.cache_read_input_tokens ?? 0) +
+      (usage.cache_creation_input_tokens ?? 0);
+
+    // A declined or truncated reply is never sent — the conversation goes to a human.
+    if (response.stop_reason === 'refusal' || response.stop_reason === 'max_tokens') {
+      return {
+        text: '',
+        confidence: 0,
+        unanswered: true,
+        tokensUsed,
+        model: response.model,
+        raw: { stopReason: response.stop_reason },
+      };
+    }
 
     let text = '';
     // content is a discriminated union — narrow before reading .text.
@@ -50,7 +152,7 @@ export class AnthropicProvider implements AIProvider {
       text: parsed.answer,
       confidence: parsed.confidence,
       unanswered: parsed.unanswered,
-      tokensUsed: response.usage.input_tokens + response.usage.output_tokens,
+      tokensUsed,
       model: response.model,
       raw: { stopReason: response.stop_reason },
     };
@@ -58,14 +160,21 @@ export class AnthropicProvider implements AIProvider {
 
   async generateEmbedding(): Promise<EmbeddingResult> {
     // Anthropic does not serve an embeddings endpoint; retrieval falls back to
-    // the lexical embedder in ai/rag/embedding.ts.
+    // OpenAI embeddings when configured, else the lexical embedder.
     throw new IntegrationError('The Anthropic provider does not support embeddings');
   }
 }
 
+/** The API requires the first turn to come from the user. */
+function dropLeadingAssistant(messages: AIMessage[]): AIMessage[] {
+  const first = messages.findIndex((m) => m.role === 'user');
+  return first <= 0 ? messages : messages.slice(first);
+}
+
 /**
- * The prompt asks for {"answer": ..., "confidence": 0-1, "can_answer": bool}.
- * Plain prose is still accepted so a provider hiccup never blocks a reply.
+ * The reply shape is {"answer": ..., "confidence": 0-1, "can_answer": bool}.
+ * Structured outputs guarantee it on current Claude models; plain prose is
+ * still accepted for other providers so a hiccup never blocks a reply.
  */
 export function parseAssistantJson(text: string): {
   answer: string;
@@ -87,7 +196,7 @@ export function parseAssistantJson(text: string): {
         return {
           answer: parsed.answer.trim(),
           confidence,
-          unanswered: parsed.can_answer === false,
+          unanswered: parsed.can_answer === false || !parsed.answer.trim(),
         };
       }
     } catch {

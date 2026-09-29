@@ -106,6 +106,37 @@ export async function cacheDel(pattern: string): Promise<void> {
 }
 
 /**
+ * Fixed-window counter: increments `key` for the current window and returns
+ * the new count, or null when Redis is unavailable (callers fail open).
+ */
+export async function incrementWindow(key: string, windowSeconds: number): Promise<number | null> {
+  try {
+    const redis = getRedis();
+    if (redis.status !== 'ready') return null;
+    const bucket = `${key}:${Math.floor(Date.now() / 1000 / windowSeconds)}`;
+    const [[, count]] = (await redis
+      .multi()
+      .incr(bucket)
+      .expire(bucket, windowSeconds + 1)
+      .exec()) as [[Error | null, number], [Error | null, number]];
+    return count;
+  } catch {
+    return null;
+  }
+}
+
+/** SET NX EX — true the first time within `ttlSeconds`, false after. */
+export async function setOnce(key: string, ttlSeconds: number): Promise<boolean> {
+  try {
+    const redis = getRedis();
+    if (redis.status !== 'ready') return true;
+    return (await redis.set(key, '1', 'EX', ttlSeconds, 'NX')) === 'OK';
+  } catch {
+    return true;
+  }
+}
+
+/**
  * Distributed lock — used to stop two workers double-processing a webhook or
  * double-sending a welcome message.
  */

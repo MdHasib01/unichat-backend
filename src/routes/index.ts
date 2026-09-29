@@ -16,6 +16,8 @@ import * as team from '../controllers/team.controller';
 import * as sales from '../controllers/sales.controller';
 import * as misc from '../controllers/misc.controller';
 import * as webhooks from '../controllers/webhook.controller';
+import * as webchat from '../controllers/webchat.controller';
+import { singleFile } from '../middleware/upload';
 
 const router = Router();
 
@@ -115,6 +117,13 @@ router.post(
   requirePermission(PERMISSIONS.CONVERSATIONS_REPLY),
   validate({ params: v.idParam, body: v.sendMessageSchema }),
   asyncHandler(conversations.sendMessageController),
+);
+router.post(
+  '/conversations/:id/messages/:messageId/retry',
+  sendLimiter,
+  requirePermission(PERMISSIONS.CONVERSATIONS_REPLY),
+  validateParams(v.messageParam),
+  asyncHandler(conversations.retryMessageController),
 );
 router.patch(
   '/conversations/:id',
@@ -255,6 +264,50 @@ router.get(
   asyncHandler(misc.listWebhookEventsController),
 );
 
+// Website chat
+router.get(
+  '/integrations/webchat',
+  requirePermission(PERMISSIONS.INTEGRATIONS_READ),
+  asyncHandler(webchat.listWidgetsController),
+);
+router.post(
+  '/integrations/webchat',
+  requirePermission(PERMISSIONS.INTEGRATIONS_MANAGE),
+  validateBody(v.createWidgetSchema),
+  asyncHandler(webchat.createWidgetController),
+);
+router.get(
+  '/integrations/webchat/:id',
+  requirePermission(PERMISSIONS.INTEGRATIONS_READ),
+  validateParams(v.idParam),
+  asyncHandler(webchat.getWidgetController),
+);
+router.patch(
+  '/integrations/webchat/:id',
+  requirePermission(PERMISSIONS.INTEGRATIONS_MANAGE),
+  validate({ params: v.idParam, body: v.updateWidgetSchema }),
+  asyncHandler(webchat.updateWidgetController),
+);
+router.delete(
+  '/integrations/webchat/:id',
+  requirePermission(PERMISSIONS.INTEGRATIONS_MANAGE),
+  validateParams(v.idParam),
+  asyncHandler(webchat.deleteWidgetController),
+);
+router.post(
+  '/integrations/webchat/:id/rotate-key',
+  requirePermission(PERMISSIONS.INTEGRATIONS_MANAGE),
+  validateParams(v.idParam),
+  asyncHandler(webchat.rotateWidgetKeyController),
+);
+router.post(
+  '/integrations/webchat/:id/logo',
+  requirePermission(PERMISSIONS.INTEGRATIONS_MANAGE),
+  validateParams(v.idParam),
+  singleFile('file', 1024 * 1024),
+  asyncHandler(webchat.uploadWidgetLogoController),
+);
+
 // AI
 router.get('/ai', requirePermission(PERMISSIONS.AI_READ), asyncHandler(ai.getAssistantController));
 router.patch(
@@ -296,6 +349,54 @@ router.post(
   '/ai/knowledge/import-products',
   requirePermission(PERMISSIONS.AI_MANAGE),
   asyncHandler(ai.importProductKnowledgeController),
+);
+router.get(
+  '/ai/training',
+  requirePermission(PERMISSIONS.AI_READ),
+  validateQuery(v.listTrainingQuery),
+  asyncHandler(ai.listTrainingController),
+);
+router.post(
+  '/ai/training',
+  requirePermission(PERMISSIONS.AI_TRAIN),
+  validateBody(v.trainingExampleSchema),
+  asyncHandler(ai.createTrainingController),
+);
+router.post(
+  '/ai/training/bulk',
+  requirePermission(PERMISSIONS.AI_TRAIN),
+  validateBody(v.bulkTrainingSchema),
+  asyncHandler(ai.bulkTrainingController),
+);
+router.post(
+  '/ai/training/import',
+  requirePermission(PERMISSIONS.AI_TRAIN),
+  validateQuery(v.trainingImportQuery),
+  singleFile('file', 5 * 1024 * 1024),
+  asyncHandler(ai.importTrainingController),
+);
+router.get(
+  '/ai/training/imports/:id',
+  requirePermission(PERMISSIONS.AI_READ),
+  validateParams(v.idParam),
+  asyncHandler(ai.getTrainingImportController),
+);
+router.get(
+  '/ai/training/export',
+  requirePermission(PERMISSIONS.AI_READ),
+  asyncHandler(ai.exportTrainingController),
+);
+router.patch(
+  '/ai/training/:id',
+  requirePermission(PERMISSIONS.AI_TRAIN),
+  validate({ params: v.idParam, body: v.updateTrainingExampleSchema }),
+  asyncHandler(ai.updateTrainingController),
+);
+router.delete(
+  '/ai/training/:id',
+  requirePermission(PERMISSIONS.AI_TRAIN),
+  validateParams(v.idParam),
+  asyncHandler(ai.deleteTrainingController),
 );
 router.post(
   '/ai/test',
