@@ -95,6 +95,16 @@ async function processInboundMessage(message: NormalizedMessage, webhookEventId:
     return;
   }
 
+  // A disconnected channel must stop syncing — the data-deletion page promises
+  // it — even if Meta keeps delivering webhooks for it.
+  if (!socialAccount.isActive) {
+    logger.info(
+      { platform: message.platform, socialAccountId: socialAccount.id },
+      'webhook for a disconnected channel; dropping',
+    );
+    return;
+  }
+
   await prisma.webhookEvent.update({
     where: { id: webhookEventId },
     data: { organizationId: socialAccount.organizationId, integrationId: socialAccount.integrationId },

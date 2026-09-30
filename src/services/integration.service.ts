@@ -2,6 +2,7 @@ import {
   IntegrationProvider,
   IntegrationStatus,
   Platform,
+  Prisma,
   SocialAccountType,
 } from '@prisma/client';
 import { env, metaScopes, mockMode } from '../config/env';
@@ -456,11 +457,46 @@ export async function disconnectAccount(organizationId: string, socialAccountId:
     },
   });
 
+  // The page token cached at connect time is a second copy of the one just
+  // cleared; drop it too so "disconnect deletes the token" holds. Reconnect
+  // uses the integration's user token, so it does not need this cache.
+  if (account.platform === Platform.FACEBOOK) {
+    const integration = await prisma.integration.findUnique({
+      where: { id: account.integrationId },
+      select: { metadata: true },
+    });
+    const metadata = (integration?.metadata ?? {}) as { pages?: Array<{ id: string }> };
+    if (metadata.pages?.some((p) => p.id === account.externalId)) {
+      await prisma.integration.update({
+        where: { id: account.integrationId },
+        data: {
+          metadata: { ...metadata, pages: metadata.pages.filter((p) => p.id !== account.externalId) } as never,
+        },
+      });
+    }
+  }
+
   await emitRealtime(organizationId, RealtimeEvent.INTEGRATION_UPDATED, { disconnected: account.id });
   return listIntegrations(organizationId);
 }
 
 export async function disconnectMeta(organizationId: string) {
+  // Stop Meta delivering webhooks for every page before its token is dropped,
+  // the same as a single-channel disconnect does.
+  if (!mockMode) {
+    const pages = await prisma.socialAccount.findMany({
+      where: { organizationId, platform: Platform.FACEBOOK, accessTokenEnc: { not: null } },
+      select: { externalId: true, accessTokenEnc: true },
+    });
+    for (const page of pages) {
+      const token = decryptNullable(page.accessTokenEnc);
+      if (!token) continue;
+      await unsubscribePageFromApp(page.externalId, token).catch((error) =>
+        logger.warn({ err: error }, 'failed to unsubscribe page from app'),
+      );
+    }
+  }
+
   await prisma.$transaction([
     prisma.socialAccount.updateMany({
       // Website chat widgets are not Meta channels and stay connected.
@@ -469,7 +505,9 @@ export async function disconnectMeta(organizationId: string) {
     }),
     prisma.integration.updateMany({
       where: { organizationId, provider: IntegrationProvider.META },
-      data: { status: IntegrationStatus.DISCONNECTED, accessTokenEnc: null },
+      // metadata holds the encrypted page tokens cached at connect time; the
+      // privacy policy promises every Meta token is gone after a disconnect.
+      data: { status: IntegrationStatus.DISCONNECTED, accessTokenEnc: null, metadata: Prisma.DbNull },
     }),
   ]);
 

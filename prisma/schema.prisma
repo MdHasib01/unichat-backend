@@ -27,6 +27,20 @@ enum MemberStatus {
   SUSPENDED
 }
 
+enum DataDeletionScope {
+  ACCOUNT
+  WORKSPACE
+  CONNECTED_DATA
+}
+
+enum DataDeletionStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
 enum Platform {
   FACEBOOK
   INSTAGRAM
@@ -311,6 +325,7 @@ model User {
   notifications         Notification[]
   invitationsSent       Invitation[]             @relation("InvitedBy")
   notes                 ContactNote[]
+  deletionRequests      DataDeletionRequest[]
 
   @@index([email])
 }
@@ -348,6 +363,34 @@ model VerificationToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, type])
+}
+
+// Account, workspace or synchronized-data deletion requests. Staff process them
+// by hand (docs/meta-app-review.md). The user and organization links are
+// SetNull so the record outlives the deletion it describes, as proof it ran.
+model DataDeletionRequest {
+  id             String             @id @default(cuid())
+  // Short code shown to the user and quoted in support emails, e.g. DEL-4F9K2QXA
+  reference      String             @unique
+  userId         String?
+  // Snapshot — the user row may be gone by the time the request is closed.
+  email          String
+  organizationId String?
+  scope          DataDeletionScope
+  status         DataDeletionStatus @default(PENDING)
+  reason         String?
+  ip             String?
+  userAgent      String?
+  processedNote  String?
+  completedAt    DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status, createdAt])
 }
 
 // ---------------------------------------------------------------------------
@@ -402,6 +445,7 @@ model Organization {
   analyticsDaily       AnalyticsDaily[]
   contactNotes         ContactNote[]
   assignments          ConversationAssignment[]
+  deletionRequests     DataDeletionRequest[]
 
   @@index([slug])
 }

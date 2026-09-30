@@ -56,3 +56,8 @@ export const acceptInvitationSchema = z.object({
   lastName: z.string().trim().max(80).optional(),
   password: passwordSchema.optional(),
 });
+
+export const deletionRequestSchema = z.object({
+  scope: z.enum(['ACCOUNT', 'WORKSPACE', 'CONNECTED_DATA']),
+  reason: z.string().trim().max(1000).nullable().optional(),
+});

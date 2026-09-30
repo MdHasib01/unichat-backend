@@ -6,6 +6,7 @@ import { aiLimiter, authLimiter, sendLimiter } from '../middleware/rateLimit';
 import { PERMISSIONS } from '../config/permissions';
 import * as v from '../validators';
 import * as auth from '../controllers/auth.controller';
+import * as account from '../controllers/account.controller';
 import * as org from '../controllers/organization.controller';
 import * as conversations from '../controllers/conversation.controller';
 import * as contacts from '../controllers/contact.controller';
@@ -56,6 +57,20 @@ router.post('/auth/logout-all', asyncHandler(auth.logoutAllController));
 router.post('/auth/change-password', validateBody(v.changePasswordSchema), asyncHandler(auth.changePasswordController));
 router.get('/auth/sessions', asyncHandler(auth.listSessionsController));
 router.delete('/auth/sessions/:id', validateParams(v.idParam), asyncHandler(auth.revokeSessionController));
+
+// Deletion requests — a user may ask for their own account to be deleted even
+// if they no longer belong to any organization.
+router.get('/account/deletion-requests', asyncHandler(account.listDeletionRequestsController));
+router.post(
+  '/account/deletion-requests',
+  validateBody(v.deletionRequestSchema),
+  asyncHandler(account.createDeletionRequestController),
+);
+router.post(
+  '/account/deletion-requests/:id/cancel',
+  validateParams(v.idParam),
+  asyncHandler(account.cancelDeletionRequestController),
+);
 
 router.get('/organizations', asyncHandler(org.listOrganizationsController));
 router.post('/organizations', validateBody(v.createOrganizationSchema), asyncHandler(org.createOrganizationController));
