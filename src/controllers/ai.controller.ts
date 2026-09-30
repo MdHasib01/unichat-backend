@@ -81,7 +81,7 @@ export async function createKnowledgeController(req: Request, res: Response) {
     entityId: document.id,
   });
 
-  return created(res, document, 'Added — Unichat is indexing it now');
+  return created(res, document, 'Added — Repliva is indexing it now');
 }
 
 export async function updateKnowledgeController(req: Request, res: Response) {

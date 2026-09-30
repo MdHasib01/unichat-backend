@@ -1,6 +1,6 @@
 import http from 'http';
 import { createApp } from './app';
-import { env, mockMode } from './config/env';
+import { env, isProd, mockMode } from './config/env';
 import { logger } from './lib/logger';
 import { checkDatabase, disconnectPrisma } from './lib/prisma';
 import { checkRedis, closeRedis } from './lib/redis';
@@ -24,6 +24,20 @@ async function bootstrap() {
   if (!database) logger.error('database is unreachable — the API will keep retrying');
   if (!redis) logger.error('redis is unreachable — queues and caching are degraded');
 
+  // Mock mode switches itself on when Meta credentials are missing. In
+  // production that would show Meta's reviewers demo channels instead of the
+  // real integration, so make it impossible to miss in the logs.
+  if (isProd && mockMode) {
+    logger.error(
+      {
+        MOCK_MODE: env.MOCK_MODE,
+        META_APP_ID: Boolean(env.META_APP_ID),
+        META_APP_SECRET: Boolean(env.META_APP_SECRET),
+      },
+      'running in MOCK MODE in production — set MOCK_MODE=false, META_APP_ID and META_APP_SECRET for real Meta channels',
+    );
+  }
+
   server.listen(env.PORT, () => {
     logger.info(
       {
@@ -32,7 +46,7 @@ async function bootstrap() {
         mockMode,
         inlineWorkers: env.RUN_WORKERS_INLINE,
       },
-      'Unichat API listening',
+      'Repliva API listening',
     );
   });
 

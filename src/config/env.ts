@@ -13,7 +13,7 @@ const bool = (def: 'true' | 'false') =>
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
-  APP_NAME: z.string().default('Unichat'),
+  APP_NAME: z.string().default('Repliva'),
   API_URL: z.string().default('http://localhost:4000'),
   FRONTEND_URL: z.string().default('http://localhost:3000'),
   CORS_ORIGINS: z.string().default('http://localhost:3000'),
@@ -43,6 +43,10 @@ const schema = z.object({
   META_VERIFY_TOKEN: z.string().default('unichat-verify-token'),
   META_GRAPH_VERSION: z.string().default('v21.0'),
   META_REDIRECT_URI: z.string().default('http://localhost:4000/api/integrations/meta/callback'),
+  // Facebook Login for Business configuration id (App Dashboard → Facebook
+  // Login for Business → Configurations). When set, the OAuth dialog uses it
+  // instead of META_SCOPES — business-type apps require this.
+  META_LOGIN_CONFIG_ID: z.string().optional(),
   META_SCOPES: z
     .string()
     .default(

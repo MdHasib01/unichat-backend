@@ -34,9 +34,18 @@ export function buildOAuthUrl(state: string): string {
     client_id: env.META_APP_ID ?? '',
     redirect_uri: env.META_REDIRECT_URI,
     state,
-    scope: metaScopes.join(','),
     response_type: 'code',
   });
+
+  // Facebook Login for Business: the permissions live in the configuration,
+  // and a scope parameter would be ignored.
+  if (env.META_LOGIN_CONFIG_ID) {
+    params.set('config_id', env.META_LOGIN_CONFIG_ID);
+    params.set('override_default_response_type', 'true');
+  } else {
+    params.set('scope', metaScopes.join(','));
+  }
+
   return `https://www.facebook.com/${env.META_GRAPH_VERSION}/dialog/oauth?${params.toString()}`;
 }
 
