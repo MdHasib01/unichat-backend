@@ -283,7 +283,7 @@ export async function selectAccounts(organizationId: string, input: SelectAccoun
 
     if (account.organizationId !== organizationId) {
       throw new BadRequestError(
-        'This Facebook Page is already connected to another Repliva workspace.',
+        'This Facebook Page is already connected to another workspace.',
         [],
         'PAGE_ALREADY_CONNECTED',
       );
