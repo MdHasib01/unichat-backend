@@ -1,4 +1,5 @@
 import {
+  Platform,
   Prisma,
   TrainingImportStatus,
   TrainingSource,
@@ -107,8 +108,20 @@ export interface TrainingInput {
  */
 export async function upsertTrainingExample(organizationId: string, userId: string | null, input: TrainingInput) {
   if (input.conversationId) {
-    const owned = await prisma.conversation.count({ where: { id: input.conversationId, organizationId } });
-    if (!owned) throw new NotFoundError('Conversation');
+    const conversation = await prisma.conversation.findFirst({
+      where: { id: input.conversationId, organizationId },
+      select: { platform: true },
+    });
+    if (!conversation) throw new NotFoundError('Conversation');
+    // The privacy policy promises Meta Platform Data is never AI training
+    // material, so only website chat conversations can be taught from.
+    if (conversation.platform !== Platform.WEBCHAT) {
+      throw new BadRequestError(
+        'Messages from Facebook, Instagram and WhatsApp cannot be used as AI training material',
+        [],
+        'TRAINING_SOURCE_NOT_ALLOWED',
+      );
+    }
   }
 
   const hash = questionHash(input.question);

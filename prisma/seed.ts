@@ -554,7 +554,7 @@ async function seedOrganization(options: SeedOrgOptions) {
       },
       {
         title: 'Pricing & packages',
-        content: `${options.name} offers three packages. Starter is $49 per month and covers one channel with up to 500 conversations. Growth is $99 per month, covers all three channels and adds automation. Premium starts at $149 per month and adds priority support, unlimited AI replies and a dedicated success manager.`,
+        content: `${options.name} offers three packages. Starter is $49 per month and covers one channel with up to 500 conversations. Growth is $99 per month, covers all three channels and adds automation. Premium starts at $149 per month and adds priority support, a higher AI reply allowance and a dedicated success manager.`,
       },
       {
         title: 'Opening hours & contact',
