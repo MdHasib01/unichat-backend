@@ -802,14 +802,14 @@ async function seedOrganization(options: SeedOrgOptions) {
 }
 
 async function main() {
-  console.log('Seeding Unichat…');
+  console.log('Seeding demo data…');
 
   await seedPermissions();
 
   await seedOrganization({
     name: 'Demo Business',
     slug: 'demo-business',
-    description: 'A demo workspace showing Unichat with real conversations, automation and AI knowledge.',
+    description: 'A demo workspace with real conversations, automation and AI knowledge.',
     industry: 'Retail & e-commerce',
     website: 'https://demo-business.example.com',
     currency: 'USD',

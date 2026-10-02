@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { Platform } from '@prisma/client';
-import { env, mockMode } from '../config/env';
+import { mockMode } from '../config/env';
+import { getBaseUrl } from '../utils/host';
 import { prisma } from '../lib/prisma';
 import { ok } from '../utils/response';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../utils/errors';
@@ -27,7 +28,7 @@ export async function startMetaConnectController(req: Request, res: Response) {
   await auditFromRequest(req, 'integration.meta_connect_started');
   return ok(
     res,
-    { url: getMetaAuthUrl(state), state, mockMode },
+    { url: getMetaAuthUrl(state, getBaseUrl(req)), state, mockMode },
     mockMode
       ? 'Mock mode is on — connect demo channels without Meta credentials'
       : 'Continue in the Meta consent screen',
@@ -40,25 +41,27 @@ export async function startMetaConnectController(req: Request, res: Response) {
  */
 export async function metaCallbackController(req: Request, res: Response) {
   const { code, state, error, error_description: errorDescription } = req.query as Record<string, string>;
+  // Back to the domain Meta called — only ever production (metaHostOnly).
+  const integrationsUrl = `${getBaseUrl(req)}/integrations`;
 
   if (error) {
     return res.redirect(
-      `${env.FRONTEND_URL}/integrations?error=${encodeURIComponent(errorDescription || error)}`,
+      `${integrationsUrl}?error=${encodeURIComponent(errorDescription || error)}`,
     );
   }
   if (!code || !state) {
-    return res.redirect(`${env.FRONTEND_URL}/integrations?error=missing_code`);
+    return res.redirect(`${integrationsUrl}?error=missing_code`);
   }
 
   try {
     const { organizationId } = await consumeOAuthState(state);
     const result = await completeMetaConnection(organizationId, code);
     return res.redirect(
-      `${env.FRONTEND_URL}/integrations?connected=1&integration=${result.integrationId}`,
+      `${integrationsUrl}?connected=1&integration=${result.integrationId}`,
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Connection failed';
-    return res.redirect(`${env.FRONTEND_URL}/integrations?error=${encodeURIComponent(message)}`);
+    return res.redirect(`${integrationsUrl}?error=${encodeURIComponent(message)}`);
   }
 }
 

@@ -19,8 +19,12 @@ import * as misc from '../controllers/misc.controller';
 import * as webhooks from '../controllers/webhook.controller';
 import * as webchat from '../controllers/webchat.controller';
 import { singleFile } from '../middleware/upload';
+import { metaHostOnly } from '../middleware/internalDomain';
 
 const router = Router();
+
+// Meta OAuth, callbacks and webhooks only exist on production (repliva.site).
+router.use(['/integrations/meta', '/webhooks/meta'], metaHostOnly);
 
 // ---------------------------------------------------------------------------
 // Public

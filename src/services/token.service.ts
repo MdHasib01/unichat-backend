@@ -4,8 +4,18 @@ import { env, isProd } from '../config/env';
 import { randomToken, sha256 } from '../utils/crypto';
 import { UnauthorizedError } from '../utils/errors';
 
-export const ACCESS_COOKIE = 'unichat_at';
-export const REFRESH_COOKIE = 'unichat_rt';
+/**
+ * Session cookies are host-only: no Domain attribute, so a sign-in on one
+ * domain never carries over to another. In production the __Host- prefix
+ * makes the browser enforce that (it rejects such a cookie if it has a
+ * Domain, lacks Secure or is not scoped to "/"). Plain HTTP in development
+ * cannot use the prefix.
+ */
+export const ACCESS_COOKIE = isProd ? '__Host-at' : 'at';
+export const REFRESH_COOKIE = isProd ? '__Host-rt' : 'rt';
+
+const TOKEN_ISSUER = 'auth';
+const TOKEN_AUDIENCE = 'api';
 
 export interface AccessTokenPayload {
   sub: string; // userId
@@ -16,8 +26,8 @@ export interface AccessTokenPayload {
 export function signAccessToken(payload: AccessTokenPayload): string {
   const options: SignOptions = {
     expiresIn: env.JWT_ACCESS_TTL as SignOptions['expiresIn'],
-    issuer: 'unichat',
-    audience: 'unichat-api',
+    issuer: TOKEN_ISSUER,
+    audience: TOKEN_AUDIENCE,
   };
   return jwt.sign(payload, env.JWT_ACCESS_SECRET, options);
 }
@@ -25,8 +35,8 @@ export function signAccessToken(payload: AccessTokenPayload): string {
 export function verifyAccessToken(token: string): AccessTokenPayload {
   try {
     return jwt.verify(token, env.JWT_ACCESS_SECRET, {
-      issuer: 'unichat',
-      audience: 'unichat-api',
+      issuer: TOKEN_ISSUER,
+      audience: TOKEN_AUDIENCE,
     }) as AccessTokenPayload;
   } catch {
     throw new UnauthorizedError('Session expired, please sign in again', 'TOKEN_INVALID');
@@ -52,7 +62,6 @@ function baseCookieOptions() {
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? ('strict' as const) : ('lax' as const),
-    domain: env.COOKIE_DOMAIN || undefined,
     path: '/',
   };
 }

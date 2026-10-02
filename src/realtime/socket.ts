@@ -1,7 +1,7 @@
 import type { Server as HttpServer } from 'http';
 import { Server as SocketServer, type Socket } from 'socket.io';
 import { parse as parseCookies } from 'cookie';
-import { corsOrigins } from '../config/env';
+import { hasInternalAccess, isAllowedOrigin, isInternalHost } from '../utils/host';
 import { logger } from '../lib/logger';
 import { createRedisConnection } from '../lib/redis';
 import { prisma } from '../lib/prisma';
@@ -29,7 +29,15 @@ interface SocketData {
 export function initRealtime(httpServer: HttpServer): SocketServer {
   io = new SocketServer(httpServer, {
     path: '/socket.io',
-    cors: { origin: corsOrigins, credentials: true },
+    // Same rules as the HTTP API (app.ts): only the request's own site, and
+    // Basic Auth on the internal domain. Socket.io handles its HTTP requests
+    // before Express, so the checks are repeated here.
+    cors: (req, callback) => callback(null, { origin: isAllowedOrigin(req, req.headers.origin), credentials: true }),
+    allowRequest: (req, callback) => {
+      if (!isAllowedOrigin(req, req.headers.origin)) return callback('origin not allowed', false);
+      if (isInternalHost(req) && !hasInternalAccess(req)) return callback('authentication required', false);
+      return callback(null, true);
+    },
     serveClient: false,
     transports: ['websocket', 'polling'],
   });

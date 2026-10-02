@@ -1,4 +1,4 @@
-// Unichat — multi-tenant messaging SaaS
+// Multi-tenant messaging SaaS
 // Every tenant-owned model carries organizationId and is indexed by it.
 
 generator client {
@@ -894,7 +894,7 @@ model AutomationExecution {
 model AIAssistant {
   id                        String   @id @default(cuid())
   organizationId            String   @unique
-  name                      String   @default("Unichat Assistant")
+  name                      String   @default("AI Assistant")
   persona                   String   @default("friendly, concise and helpful")
   systemPrompt              String?
   language                  String   @default("en")

@@ -4,12 +4,15 @@ import cors from 'cors';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import path from 'path';
-import { corsOrigins, env } from './config/env';
+import { env } from './config/env';
 import { httpLogger, requestId } from './middleware/requestContext';
 import { errorHandler, notFoundHandler } from './middleware/error';
 import { apiLimiter } from './middleware/rateLimit';
 import routes from './routes';
 import widgetRoutes from './routes/widget.routes';
+import { internalDomainGuard } from './middleware/internalDomain';
+import { isAllowedOrigin } from './utils/host';
+import { ForbiddenError } from './utils/errors';
 
 export function createApp(): Express {
   const app = express();
@@ -30,21 +33,26 @@ export function createApp(): Express {
   app.use(requestId);
   app.use(httpLogger);
 
+  // The internal testing domain sits behind Basic Auth and is never indexed.
+  app.use(internalDomainGuard);
+
   // The website chat widget is called from customers' sites, streams SSE and
   // has its own CORS and limits, so it sits in front of the dashboard stack.
   app.use('/api/widget', widgetRoutes);
 
   app.use(
-    cors({
-      origin(origin, callback) {
-        // Same-origin/server-to-server requests send no Origin header.
-        if (!origin || corsOrigins.includes(origin)) return callback(null, true);
-        return callback(new Error('Origin not allowed by CORS'));
-      },
-      credentials: true,
-      methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
-      exposedHeaders: ['X-Request-Id'],
+    // Only the request's own site may call the API: a page on one domain can
+    // never make credentialed calls to the other.
+    cors((req, callback) => {
+      const origin = req.headers.origin;
+      if (!isAllowedOrigin(req, origin)) return callback(new ForbiddenError('Origin not allowed'));
+      return callback(null, {
+        origin: Boolean(origin),
+        credentials: true,
+        methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id'],
+        exposedHeaders: ['X-Request-Id'],
+      });
     }),
   );
 

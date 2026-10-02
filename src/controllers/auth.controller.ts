@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { env, isProd } from '../config/env';
+import { getBaseUrl } from '../utils/host';
 import { created, ok } from '../utils/response';
 import { UnauthorizedError } from '../utils/errors';
 import {
@@ -152,7 +153,7 @@ export async function forgotPasswordController(req: Request, res: Response) {
   // an SMTP server wired up.
   return ok(
     res,
-    isProd ? {} : { resetToken: token, resetUrl: token ? `${env.FRONTEND_URL}/reset-password?token=${token}` : null },
+    isProd ? {} : { resetToken: token, resetUrl: token ? `${getBaseUrl(req)}/reset-password?token=${token}` : null },
     'If that email is registered, a reset link is on its way',
   );
 }

@@ -5,7 +5,7 @@ import {
   Prisma,
   SocialAccountType,
 } from '@prisma/client';
-import { env, metaScopes, mockMode } from '../config/env';
+import { metaScopes, mockMode } from '../config/env';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
 import { getRedis } from '../lib/redis';
@@ -54,11 +54,11 @@ export async function consumeOAuthState(
   return JSON.parse(raw) as { organizationId: string; userId: string };
 }
 
-export function getMetaAuthUrl(state: string): string {
+export function getMetaAuthUrl(state: string, baseUrl: string): string {
   if (mockMode) {
     // Without Meta credentials the UI is sent to the local simulator instead
     // of a real consent screen.
-    return `${env.FRONTEND_URL}/integrations?mock=1&state=${state}`;
+    return `${baseUrl}/integrations?mock=1&state=${state}`;
   }
   return buildOAuthUrl(state);
 }

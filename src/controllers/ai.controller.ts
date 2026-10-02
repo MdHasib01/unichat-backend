@@ -264,7 +264,7 @@ export async function getTrainingImportController(req: Request, res: Response) {
 
 export async function exportTrainingController(req: Request, res: Response) {
   const examples = await exportTraining(req.tenant!.organizationId);
-  res.setHeader('Content-Disposition', `attachment; filename="unichat-training-${new Date().toISOString().slice(0, 10)}.json"`);
+  res.setHeader('Content-Disposition', `attachment; filename="training-${new Date().toISOString().slice(0, 10)}.json"`);
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   return res.send(JSON.stringify({ examples }, null, 2));
 }

@@ -1,5 +1,6 @@
 import axios, { AxiosError, type AxiosInstance } from 'axios';
-import { env, metaScopes } from '../../config/env';
+import { env, isProd, metaScopes } from '../../config/env';
+import { META_CALLBACK_URL } from '../../utils/host';
 import { logger } from '../../lib/logger';
 import { IntegrationError } from '../../utils/errors';
 
@@ -29,10 +30,18 @@ export interface MetaTokenResponse {
   expires_in?: number;
 }
 
+/**
+ * Must match the redirect URI registered with the Meta app exactly. Production
+ * always uses https://repliva.site/api/integrations/meta/callback.
+ */
+function metaRedirectUri(): string {
+  return isProd ? META_CALLBACK_URL : env.META_REDIRECT_URI;
+}
+
 export function buildOAuthUrl(state: string): string {
   const params = new URLSearchParams({
     client_id: env.META_APP_ID ?? '',
-    redirect_uri: env.META_REDIRECT_URI,
+    redirect_uri: metaRedirectUri(),
     state,
     response_type: 'code',
   });
@@ -54,7 +63,7 @@ export async function exchangeCodeForToken(code: string): Promise<MetaTokenRespo
     params: {
       client_id: env.META_APP_ID,
       client_secret: env.META_APP_SECRET,
-      redirect_uri: env.META_REDIRECT_URI,
+      redirect_uri: metaRedirectUri(),
       code,
     },
   });

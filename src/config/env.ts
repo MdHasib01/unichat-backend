@@ -15,9 +15,13 @@ const schema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   APP_NAME: z.string().default('Repliva'),
   API_URL: z.string().default('http://localhost:4000'),
+  // Development only: where localhost links point (the Next.js dev server).
+  // Production URLs come from the request host — see utils/host.ts.
   FRONTEND_URL: z.string().default('http://localhost:3000'),
-  CORS_ORIGINS: z.string().default('http://localhost:3000'),
-  COOKIE_DOMAIN: z.string().optional(),
+  // HTTP Basic Auth for the internal testing domain (utils/host.ts). If either
+  // is unset, that domain refuses every request.
+  INTERNAL_AUTH_USER: z.string().optional(),
+  INTERNAL_AUTH_PASS: z.string().optional(),
   TRUST_PROXY: bool('false'),
 
   DATABASE_URL: z.string().default('postgresql://postgres:postgres@localhost:5432/unichat?schema=public'),
@@ -40,8 +44,9 @@ const schema = z.object({
 
   META_APP_ID: z.string().optional(),
   META_APP_SECRET: z.string().optional(),
-  META_VERIFY_TOKEN: z.string().default('unichat-verify-token'),
+  META_VERIFY_TOKEN: z.string().default('change-me-webhook-verify-token'),
   META_GRAPH_VERSION: z.string().default('v21.0'),
+  // Development only. Production always uses https://repliva.site/api/integrations/meta/callback.
   META_REDIRECT_URI: z.string().default('http://localhost:4000/api/integrations/meta/callback'),
   // Facebook Login for Business configuration id (App Dashboard → Facebook
   // Login for Business → Configurations). When set, the OAuth dialog uses it
@@ -96,10 +101,6 @@ export const env = parsed.data;
 
 export const isProd = env.NODE_ENV === 'production';
 export const isDev = env.NODE_ENV === 'development';
-
-export const corsOrigins = env.CORS_ORIGINS.split(',')
-  .map((o) => o.trim())
-  .filter(Boolean);
 
 export const metaScopes = env.META_SCOPES.split(',')
   .map((s) => s.trim())

@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
-import { env, isProd } from '../config/env';
+import { isProd } from '../config/env';
+import { getBaseUrl } from '../utils/host';
 import { created, noContent, ok } from '../utils/response';
 import {
   acceptInvitation,
@@ -38,7 +39,7 @@ export async function inviteMemberController(req: Request, res: Response) {
     req.body.role,
   );
 
-  const inviteUrl = `${env.FRONTEND_URL}/accept-invitation?token=${token}`;
+  const inviteUrl = `${getBaseUrl(req)}/accept-invitation?token=${token}`;
 
   await notificationQueue().add('notify', {
     organizationId,

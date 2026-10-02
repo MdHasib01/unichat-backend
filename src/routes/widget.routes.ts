@@ -6,6 +6,7 @@ import { incrementWindow } from '../lib/redis';
 import { fail, ok } from '../utils/response';
 import { ForbiddenError, NotFoundError, UnauthorizedError } from '../utils/errors';
 import { isOriginAllowed } from '../utils/domains';
+import { brandNameFor } from '../utils/host';
 import { issueVisitorToken, verifyVisitorToken } from '../services/widgetToken.service';
 import {
   describeVisitor,
@@ -121,7 +122,7 @@ router.get(
   limit('config', 120, 60, 'ip'),
   (req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'public, max-age=60');
-    return ok(res, toPublicConfig(req.widget!));
+    return ok(res, { ...toPublicConfig(req.widget!), brandName: brandNameFor(req) });
   },
 );
 

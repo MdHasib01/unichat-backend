@@ -13,6 +13,7 @@ import {
 } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { logger } from '../lib/logger';
+import { toSitePath } from '../utils/host';
 import { cacheDel, cacheGet, cacheSet, setOnce } from '../lib/redis';
 import { randomToken } from '../utils/crypto';
 import { BadRequestError, NotFoundError } from '../utils/errors';
@@ -305,7 +306,9 @@ export function toPublicConfig(widget: PublicWidget) {
   return {
     key: widget.publicKey,
     ...widget.appearance,
-    logoUrl: widget.appearance.logoUrl ?? widget.business.logoUrl,
+    // Site-relative for our own uploads: the widget resolves it against the
+    // domain it was loaded from.
+    logoUrl: toSitePath(widget.appearance.logoUrl ?? widget.business.logoUrl),
     businessName: widget.business.name,
     isOnline: isWithinBusinessHours(widget.business.businessHours, widget.business.timezone),
     preChat: { mode: widget.preChatMode, fields: widget.preChatFields },
